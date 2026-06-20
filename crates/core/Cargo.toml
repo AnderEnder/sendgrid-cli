@@ -9,3 +9,40 @@ license.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
+# JSON Schema 2020-12 body validation. Same version the workspace pins (used by
+# xtask's L1 gate); we only add the `draft202012` feature on top of it.
+jsonschema = { workspace = true, features = ["draft202012"] }
+
+# HTTP — pure-Rust ring TLS (NOT aws-lc). `*-no-provider` keeps reqwest from
+# picking a crypto provider (we install ring as the process default in
+# `runtime::http`); the `webpki-roots` variant compiles in the Mozilla trust
+# anchors so real TLS handshakes verify (the bare `*-no-provider` variant ships
+# an EMPTY root store → every handshake fails `UnknownIssuer`). webpki roots are
+# the right call for the headless/container agents we target. reqwest's own
+# rustls dep is `default-features = false`, so no aws-lc is pulled transitively.
+reqwest = { version = "0.12", default-features = false, features = [
+    "json",
+    "http2",
+    "rustls-tls-webpki-roots-no-provider",
+] }
+rustls = { version = "0.23", default-features = false, features = [
+    "ring",
+    "std",
+    "tls12",
+] }
+# Provider-neutral HTTP types (StatusCode / HeaderMap) used in the dispatcher seam.
+http = "1"
+
+# Secret handling: redacted Debug, no Serialize, zeroize on drop.
+secrecy = "0.10"
+# Defense-in-depth scrub regex for the canonical SendGrid key format.
+regex = "1"
+# Runtime-agnostic async timer for retry backoff. Lets the retry engine sleep
+# WITHOUT binding core to tokio (consumers own the runtime); works under any
+# executor. The only "extra" dep beyond the brief's list — justified by item 9
+# (retry/backoff) needing an async sleep in a runtime-neutral library.
+futures-timer = "3"
+
+[dev-dependencies]
+# core is a library: consumers own the async runtime. tokio is dev-only, for tests.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
