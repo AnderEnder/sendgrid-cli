@@ -1,0 +1,7 @@
+/target
+**/*.rs.bk
+.DS_Store
+# Research scratch (spikes + notes) — not part of the shipped product.
+/.research-sendgrid-oai
+/.research-spikes
+/.research-notes

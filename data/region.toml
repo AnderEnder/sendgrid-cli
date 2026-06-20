@@ -1,0 +1,21 @@
+# Region availability — the 14 specs whose `servers[]` declare NO
+# https://api.eu.sendgrid.com host, so every op in them is global-only
+# (region_global_only = true). Verified op-by-op against servers[] in
+# review-domain.md (C7, UPHELD: exactly 14/46). Codegen also cross-checks this
+# curated list against the parsed servers[] of every spec (L1).
+global_only = [
+  "email_activity",
+  "email_validation",
+  "lmc_campaigns",
+  "lmc_contactdb",
+  "lmc_senders",
+  "mc_contacts",
+  "mc_custom_fields",
+  "mc_lists",
+  "mc_segments_2.0",
+  "mc_segments",
+  "mc_senders",
+  "mc_singlesends",
+  "mc_stats",
+  "mc_test",
+]

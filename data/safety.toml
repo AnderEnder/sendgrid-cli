@@ -1,0 +1,99 @@
+# Safety model overrides — the semantic corrections to the method-only side-effect
+# default (`GET→read`, `DELETE→destructive`, else `write`). Sources:
+# .research-notes/r3-agent-ux-safety.md §2 + review-domain.md (C5/C6) +
+# review-security.md (S1/S2). All op keys are `namespace.OperationId` because some
+# operationIds collide across files (DeleteSegment ×3, DeleteContact ×2).
+
+# --- send-list: ops that dispatch real outbound email / spend money → `send`. ---
+# Base 7 (r3 §2.3) + EmailDnsRecord & InviteTeammate (review-domain C5: both send
+# real mail to an arbitrary caller-supplied recipient).
+send_list = [
+  "mail.SendMail",
+  "lmc_campaigns.SendCampaign",
+  "lmc_campaigns.SendTestCampaign",
+  "lmc_campaigns.ScheduleCampaign",
+  "lmc_campaigns.UpdateScheduledCampaign",
+  "mc_singlesends.ScheduleSingleSend",
+  "mc_test.SendTestMarketingEmail",
+  "domain_authentication.EmailDnsRecord",
+  "teammates.InviteTeammate",
+]
+
+# --- destructive overrides: POSTs that irreversibly remove data → `destructive`. ---
+# (review-domain C6 / review-security S4). The path-substring rules below catch the
+# same set generically + any future :batchDelete / erasejob op.
+destructive_overrides = [
+  "recipients_data_erasure.EraseRecipientEmailData",
+  "ip_address_management.DeleteSubUsersFromIp",
+  "ip_address_management.DeleteIpsFromIpPool",
+]
+destructive_path_substrings = [":batchDelete", "erasejob"]
+
+# --- secret request fields (global, name-based redaction). ---
+# Applied to EVERY body-bearing op: redaction is name-based and request bodies have
+# open/freeform objects (SendMail custom_args/dynamic_template_data), so narrowing
+# to only ops with a *declared* secret property would under-cover — the dangerous
+# direction for a security control (review-security S1-minor).
+secret_request_fields_global = ["password", "oauth_client_secret", "client_secret"]
+
+# --- secret response fields: values to redact from response `data` by default. ---
+# Only CreateApiKey's 201 returns a live key (review-security S1 / BLOCKER 1).
+[[secret_response_fields]]
+op = "api_keys.CreateApiKey"
+fields = ["api_key"]
+
+# --- bulk triggers: (field,location,value) that promote a call to `bulk`. ---
+# A bulk trigger fires only if the named field actually exists on the op (codegen
+# verifies); a missing field is a hard error so this table can't silently rot.
+
+# delete_all (body) — the 4 suppression mass-wipes (r3 §2.4).
+[[bulk_triggers]]
+op = "suppressions.DeleteSuppressionBlocks"
+field = "delete_all"
+location = "body"
+value = "true"
+
+[[bulk_triggers]]
+op = "suppressions.DeleteSuppressionBounces"
+field = "delete_all"
+location = "body"
+value = "true"
+
+[[bulk_triggers]]
+op = "suppressions.DeleteInvalidEmails"
+field = "delete_all"
+location = "body"
+value = "true"
+
+[[bulk_triggers]]
+op = "suppressions.DeleteSpamReports"
+field = "delete_all"
+location = "body"
+value = "true"
+
+# delete_all_contacts (query) — wipe the whole contact base (r3 §2.4).
+[[bulk_triggers]]
+op = "mc_contacts.DeleteContact"
+field = "delete_all_contacts"
+location = "query"
+value = "true"
+
+# delete_contacts=true (query) — list/segment delete that also wipes its contacts
+# (review-security S2). The op stays `destructive` until this flag is set.
+[[bulk_triggers]]
+op = "lmc_contactdb.DeleteContactDbList"
+field = "delete_contacts"
+location = "query"
+value = "true"
+
+[[bulk_triggers]]
+op = "lmc_contactdb.DeleteSegment"
+field = "delete_contacts"
+location = "query"
+value = "true"
+
+[[bulk_triggers]]
+op = "mc_lists.DeleteMarketingList"
+field = "delete_contacts"
+location = "query"
+value = "true"

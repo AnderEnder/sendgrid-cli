@@ -1,0 +1,5074 @@
+{
+  "account_provisioning.AccountProvisioningStateWrite": {
+    "examples": [
+      {
+        "state": "activated"
+      }
+    ],
+    "properties": {
+      "state": {
+        "description": "The state of the account (e.g., `activated`, `deactivated`)",
+        "enum": [
+          "activated",
+          "deactivated"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "state"
+    ],
+    "title": "StateWrite",
+    "type": "object"
+  },
+  "account_provisioning.CreateAccount": {
+    "properties": {
+      "offerings": {
+        "description": "List of offering names to assign to account.",
+        "items": {
+          "description": "An offering is a package (email infrastructure) or add-on (marketing campaigns, dedicated IP addresses, EASE) that an account can acquire. Each offering has a list of entitlements that indicate the benefits the account receives from the acquisition.",
+          "examples": [
+            {
+              "name": "org.ei.free.v1",
+              "quantity": 1,
+              "type": "package"
+            }
+          ],
+          "properties": {
+            "name": {
+              "description": "Name of the offering",
+              "type": "string"
+            },
+            "quantity": {
+              "description": "Quantity of the specified addon to be added. If offering type is `package`, quantity must be 1.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": {
+              "description": "Defines the type of offering (e.g., package or addon).",
+              "enum": [
+                "package",
+                "addon"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "title": "Offering",
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "profile": {
+        "examples": [
+          {
+            "company_name": "Example Co",
+            "company_website": "https://example.com",
+            "email": "mail@example.com",
+            "first_name": "Sender",
+            "last_name": "Wiz",
+            "timezone": "Asia/Tokyo"
+          }
+        ],
+        "properties": {
+          "company_name": {
+            "description": "Company name of the account holder",
+            "type": "string"
+          },
+          "company_website": {
+            "description": "Company website of the account holder",
+            "type": "string"
+          },
+          "email": {
+            "description": "Email of the account holder",
+            "type": "string"
+          },
+          "first_name": {
+            "description": "First name of the account holder",
+            "type": "string"
+          },
+          "last_name": {
+            "description": "Last name of the account holder",
+            "type": "string"
+          },
+          "phone": {
+            "description": "Phone number with a maximum of fifteen digits formatted using the E.164 standard consisting of [+] [country code] [subscriber number including area code]",
+            "type": "string"
+          },
+          "timezone": {
+            "description": "Area/Location as listed in the [IANA Time Zone database](https://www.iana.org/time-zones)",
+            "type": "string"
+          }
+        },
+        "title": "Profile",
+        "type": "object"
+      }
+    },
+    "required": [
+      "offerings"
+    ],
+    "title": "CreateAccountParams",
+    "type": "object"
+  },
+  "account_provisioning.UpdateAccountOffering": {
+    "properties": {
+      "offerings": {
+        "description": "List of offerings to assign to account.",
+        "items": {
+          "description": "An offering is a package (email infrastructure) or add-on (marketing campaigns, dedicated IP addresses, EASE) that an account can acquire. Each offering has a list of entitlements that indicate the benefits the account receives from the acquisition.",
+          "examples": [
+            {
+              "name": "org.ei.free.v1",
+              "quantity": 1,
+              "type": "package"
+            }
+          ],
+          "properties": {
+            "name": {
+              "description": "Name of the offering",
+              "type": "string"
+            },
+            "quantity": {
+              "description": "Quantity of the specified addon to be added. If offering type is `package`, quantity must be 1.",
+              "format": "int64",
+              "type": "integer"
+            },
+            "type": {
+              "description": "Defines the type of offering (e.g., package or addon).",
+              "enum": [
+                "package",
+                "addon"
+              ],
+              "type": "string"
+            }
+          },
+          "required": [
+            "name",
+            "type"
+          ],
+          "title": "Offering",
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "offerings"
+    ],
+    "title": "OfferingsToAdd",
+    "type": "object"
+  },
+  "alerts.CreateAlert": {
+    "examples": [
+      {
+        "email_to": "example@example.com",
+        "frequency": "daily",
+        "type": "stats_notification"
+      }
+    ],
+    "properties": {
+      "email_to": {
+        "description": "The email address the alert will be sent to.\nExample: test@example.com",
+        "format": "email",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "frequency": {
+        "description": "Required for stats_notification. How frequently the alert will be sent.\nExample: daily",
+        "type": "string"
+      },
+      "percentage": {
+        "description": "Required for usage_limit. When this usage threshold is reached, the alert will be sent.\nExample: 90",
+        "type": "integer"
+      },
+      "type": {
+        "description": "The type of alert you want to create. Can be either usage_limit or stats_notification.\nExample: usage_limit",
+        "enum": [
+          "stats_notification",
+          "usage_limit"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "type",
+      "email_to"
+    ],
+    "type": "object"
+  },
+  "alerts.UpdateAlert": {
+    "examples": [
+      {
+        "email_to": "example@example.com"
+      }
+    ],
+    "properties": {
+      "email_to": {
+        "description": "The new email address you want your alert to be sent to.\nExample: test@example.com",
+        "type": "string"
+      },
+      "frequency": {
+        "description": "The new frequency at which to send the stats_notification alert.\nExample: monthly",
+        "type": "string"
+      },
+      "percentage": {
+        "description": "The new percentage threshold at which the usage_limit alert will be sent.\nExample: 90",
+        "type": "integer"
+      }
+    },
+    "type": "object"
+  },
+  "api_keys.CreateApiKey": {
+    "examples": [
+      {
+        "name": "My API Key",
+        "scopes": [
+          "mail.send",
+          "alerts.create",
+          "alerts.read"
+        ]
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The name you will use to describe this API Key.",
+        "type": "string"
+      },
+      "scopes": {
+        "description": "The individual permissions that you are giving to this API Key.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "api_keys.UpdateApiKey": {
+    "examples": [
+      {
+        "name": "Profiles key",
+        "scopes": [
+          "user.profile.read",
+          "user.profile.update"
+        ]
+      }
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "scopes": {
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "api_keys.UpdateApiKeyName": {
+    "examples": [
+      {
+        "name": "A New Hope"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The new name of the API Key.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.AddIpToAuthenticatedDomain": {
+    "examples": [
+      {
+        "ip": "192.168.0.1"
+      }
+    ],
+    "properties": {
+      "ip": {
+        "description": "IP to associate with the domain. Used for manually specifying IPs for custom SPF.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ip"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.AssociateSubuserWithDomain": {
+    "examples": [
+      {
+        "username": "jdoe"
+      }
+    ],
+    "properties": {
+      "username": {
+        "description": "Username to associate with the authenticated domain.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "username"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.AssociateSubuserWithDomainMultiple": {
+    "examples": [
+      {
+        "username": "jdoe"
+      }
+    ],
+    "properties": {
+      "username": {
+        "description": "Username to associate with the authenticated domain.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "username"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.AuthenticateDomain": {
+    "examples": [
+      {
+        "automatic_security": false,
+        "custom_dkim_selector": "string",
+        "custom_spf": true,
+        "default": true,
+        "domain": "example.com",
+        "ips": [
+          "192.168.1.1",
+          "192.168.1.2"
+        ],
+        "region": "global",
+        "subdomain": "news",
+        "username": "john@example.com"
+      }
+    ],
+    "properties": {
+      "automatic_security": {
+        "description": "Whether to allow SendGrid to manage your SPF records, DKIM keys, and DKIM key rotation.",
+        "type": "boolean"
+      },
+      "custom_dkim_selector": {
+        "description": "Add a custom DKIM selector. Accepts three letters or numbers.",
+        "type": "string"
+      },
+      "custom_spf": {
+        "description": "Specify whether to use a custom SPF or allow SendGrid to manage your SPF. This option is only available to authenticated domains set up for manual security.",
+        "type": "boolean"
+      },
+      "default": {
+        "description": "Whether to use this authenticated domain as the fallback if no authenticated domains match the sender's domain.",
+        "type": "boolean"
+      },
+      "domain": {
+        "description": "Domain being authenticated.",
+        "type": "string"
+      },
+      "ips": {
+        "description": "The IP addresses that will be included in the custom SPF record for this authenticated domain.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "region": {
+        "description": "The region of the domain. Allowed values are `global` and `eu`. The default value is `global`.",
+        "type": "string"
+      },
+      "subdomain": {
+        "description": "The subdomain or custom return-path to use for this authenticated domain.",
+        "type": "string"
+      },
+      "username": {
+        "description": "The username associated with this domain.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "domain"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.EmailDnsRecord": {
+    "examples": [
+      {
+        "domain_id": 46873408,
+        "email": "my_colleague@example.com",
+        "link_id": 29719392,
+        "message": "DNS Record for verification"
+      }
+    ],
+    "properties": {
+      "domain_id": {
+        "description": "The ID of your SendGrid domain record.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "email": {
+        "description": "The email address to send the DNS information to.",
+        "format": "email",
+        "type": "string"
+      },
+      "link_id": {
+        "description": "The ID of the branded link.",
+        "minimum": 0,
+        "type": "integer"
+      },
+      "message": {
+        "default": "Please set these DNS records in our hosting solution.",
+        "description": "A custom text block to include in the email body sent with the records.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "link_id",
+      "domain_id",
+      "email"
+    ],
+    "type": "object"
+  },
+  "domain_authentication.UpdateAuthenticatedDomain": {
+    "examples": [
+      {
+        "custom_spf": true,
+        "default": false
+      }
+    ],
+    "properties": {
+      "custom_spf": {
+        "default": false,
+        "description": "Indicates whether to generate a custom SPF record for manual security.",
+        "type": "boolean"
+      },
+      "default": {
+        "default": false,
+        "description": "Indicates whether this is the default authenticated domain.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "email_validation.ListEmailJobForVerification": {
+    "examples": [
+      {
+        "file_type": "csv"
+      }
+    ],
+    "properties": {
+      "file_type": {
+        "description": "The format of the file you wish to upload.",
+        "enum": [
+          "csv",
+          "zip"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "file_type"
+    ],
+    "type": "object"
+  },
+  "email_validation.ValidateEmail": {
+    "examples": [
+      {
+        "email": "example@example.com",
+        "source": "signup"
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "The email address that you want to validate.",
+        "type": "string"
+      },
+      "source": {
+        "description": "A one-word classifier for where this validation originated.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "email"
+    ],
+    "type": "object"
+  },
+  "enforced_tls.EnforcedTlsRequestResponse": {
+    "examples": [
+      {
+        "require_tls": true,
+        "require_valid_cert": true,
+        "version": 1.1
+      }
+    ],
+    "properties": {
+      "require_tls": {
+        "description": "Indicates if you want to require your recipients to support TLS. ",
+        "type": "boolean"
+      },
+      "require_valid_cert": {
+        "description": "Indicates if you want to require your recipients to have a valid certificate.",
+        "type": "boolean"
+      },
+      "version": {
+        "default": 1.1,
+        "description": "The minimum required TLS certificate version.",
+        "enum": [
+          1.1,
+          1.2,
+          1.3
+        ],
+        "format": "float",
+        "type": "number"
+      }
+    },
+    "title": "Enforced TLS Request Response",
+    "type": "object"
+  },
+  "integrations.IntegrationInput": {
+    "properties": {
+      "destination": {
+        "description": "The third-party application you would like to forward your events to.",
+        "enum": [
+          "Segment"
+        ],
+        "type": "string"
+      },
+      "filters": {
+        "description": "The configurable filters for SendGrid to destination email event forwarding.",
+        "properties": {
+          "email_events": {
+            "description": "The possible SendGrid email event types for event forwarding. Specify all the email event types that you would like to forward to the Integration's destination.",
+            "items": {
+              "enum": [
+                "drop",
+                "processed",
+                "deferred",
+                "group_unsubscribe",
+                "bounce",
+                "delivered",
+                "click",
+                "unsubscribe",
+                "open",
+                "group_resubscribe",
+                "spamreport",
+                "machine_opened"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "required": [
+          "email_events"
+        ],
+        "type": "object"
+      },
+      "label": {
+        "default": "Untitled Integration",
+        "description": "The nickname for the Integration.",
+        "examples": [
+          "My New Segment Integration!"
+        ],
+        "type": "string"
+      },
+      "properties": {
+        "description": "The properties of an Integration required to send events to a specific third-party application.",
+        "properties": {
+          "destination_region": {
+            "description": "The workspace region where the Segment Source write key lives.",
+            "enum": [
+              "EU",
+              "US"
+            ],
+            "type": "string"
+          },
+          "write_key": {
+            "description": "The write key provided by the Segment Source you'd like to have events forwarded to. Must be between 6 and 51 characters.",
+            "examples": [
+              "1234-abc"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "write_key",
+          "destination_region"
+        ],
+        "type": "object"
+      }
+    },
+    "required": [
+      "destination",
+      "filters",
+      "properties"
+    ],
+    "type": "object"
+  },
+  "integrations.IntegrationPatch": {
+    "properties": {
+      "destination": {
+        "description": "The third-party application you would like to forward your email events to.",
+        "enum": [
+          "Segment"
+        ],
+        "type": "string"
+      },
+      "filters": {
+        "description": "The configurable filters for SendGrid to destination email event forwarding.",
+        "properties": {
+          "email_events": {
+            "description": "The possible SendGrid email event types for event forwarding. Specify all the email event types that you would like to forward to the Integration's destination.",
+            "items": {
+              "enum": [
+                "drop",
+                "processed",
+                "deferred",
+                "group_unsubscribe",
+                "bounce",
+                "delivered",
+                "click",
+                "unsubscribe",
+                "open",
+                "group_resubscribe",
+                "spamreport",
+                "machine_opened"
+              ],
+              "type": "string"
+            },
+            "type": "array"
+          }
+        },
+        "type": "object"
+      },
+      "label": {
+        "default": "Untitled Integration",
+        "description": "The nickname for the Integration.",
+        "examples": [
+          "My New Segment Integration!"
+        ],
+        "type": "string"
+      },
+      "properties": {
+        "description": "The properties of an Integration required to send events to a specific third-party application.",
+        "properties": {
+          "destination_region": {
+            "description": "The workspace region where the Segment Source write key lives.",
+            "enum": [
+              "EU",
+              "US"
+            ],
+            "type": "string"
+          },
+          "write_key": {
+            "description": "The write key provided by the Segment Source you'd like to have events forwarded to. Must be between 6 and 51 characters.",
+            "examples": [
+              "1234-abc"
+            ],
+            "type": "string"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  },
+  "ip_access_management.AddIpToAllowList": {
+    "examples": [
+      {
+        "ips": [
+          {
+            "ip": "192.168.1.1"
+          },
+          {
+            "ip": "192.*.*.*"
+          },
+          {
+            "ip": "192.168.1.3/32"
+          }
+        ]
+      }
+    ],
+    "properties": {
+      "ips": {
+        "description": "An array containing the IP(s) you want to allow.",
+        "items": {
+          "properties": {
+            "ip": {
+              "description": "An IP address that you want to allow.",
+              "type": "string"
+            }
+          },
+          "required": [
+            "ip"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "ips"
+    ],
+    "type": "object"
+  },
+  "ip_access_management.DeleteAllowedIps": {
+    "examples": [
+      {
+        "ids": [
+          1,
+          2,
+          3
+        ]
+      }
+    ],
+    "properties": {
+      "ids": {
+        "description": "An array of the IDs of the IP address that you want to remove from your allow list.",
+        "items": {
+          "type": "integer"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "ip_address_management.AddIp": {
+    "properties": {
+      "include_region": {
+        "default": false,
+        "description": "Boolean indicating whether or not to return the IP address's region information in the response.",
+        "type": "boolean"
+      },
+      "is_auto_warmup": {
+        "description": "Indicates if the IP address is set to automatically [warmup](https://docs.sendgrid.com/ui/sending-email/warming-up-an-ip-address).",
+        "type": "boolean"
+      },
+      "is_parent_assigned": {
+        "description": "Indicates if a parent on the account is able to send email from the IP address.",
+        "type": "boolean"
+      },
+      "region": {
+        "default": "us",
+        "description": "The region to which the IP address is assigned. This property will only be returned if the `include_region` query parameter is included and set to `true` as part of the API request.",
+        "enum": [
+          "eu",
+          "us"
+        ],
+        "type": "string"
+      },
+      "subusers": {
+        "description": "An array of Subuser IDs the IP address will be assigned to.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
+      }
+    },
+    "required": [
+      "is_auto_warmup",
+      "is_parent_assigned"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.AddIpsToIpPool": {
+    "properties": {
+      "ips": {
+        "description": "An array of IP addresses to assign to the specified IP Pool. All assignments must succeed.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "ips"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.AddSubUsersToIp": {
+    "properties": {
+      "subusers": {
+        "description": "An array of Subuser IDs to be assigned to the specified IP address. All Subuser assignments must succeed.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "subusers"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.CreateIpPool": {
+    "properties": {
+      "ips": {
+        "description": "An array of IP addresses to assign to the IP Pool. All assignments must succeed.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
+      },
+      "name": {
+        "description": "The name to assign to the IP Pool. An IP Pool name cannot begin with a space or period.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.DeleteIpsFromIpPool": {
+    "properties": {
+      "ips": {
+        "description": "An array of IP addresses to remove from the specified IP Pool.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "ips"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.DeleteSubUsersFromIp": {
+    "properties": {
+      "subusers": {
+        "description": "An array of Subuser IDs to be removed from the specified IP address.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "subusers"
+    ],
+    "type": "object"
+  },
+  "ip_address_management.UpdateIp": {
+    "properties": {
+      "is_auto_warmup": {
+        "description": "Indicates if the IP address is set to automatically [warmup](https://docs.sendgrid.com/ui/sending-email/warming-up-an-ip-address).",
+        "type": "boolean"
+      },
+      "is_enabled": {
+        "description": "Indicates if the IP address is billed and able to send email. This parameter applies to non-Twilio SendGrid APIs that been added to your Twilio SendGrid account. This parameter's value is `null` for Twilio SendGrid IP addresses.",
+        "type": "boolean"
+      },
+      "is_parent_assigned": {
+        "description": "Indicates if a parent on the account is able to send email from the IP address.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "ip_address_management.UpdateIpPool": {
+    "properties": {
+      "name": {
+        "description": "The name to assign to the IP Pool. An IP Pool name cannot begin with a space or period.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "ip_provisioning.AddAccountIps": {
+    "description": "Request to add IP addresses to an account. Maximum of 10 IPs per request, all from the same region.",
+    "properties": {
+      "count": {
+        "description": "Number of IPs to add (maximum 10 per request)",
+        "format": "int64",
+        "maximum": 10,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "region": {
+        "description": "The region where the IPs should be provisioned (all IPs in a single request must be from the same region)",
+        "enum": [
+          "eu",
+          "us"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "count",
+      "region"
+    ],
+    "title": "AddAccountIPsRequest",
+    "type": "object"
+  },
+  "ip_provisioning.RemoveAccountIps": {
+    "properties": {
+      "ips": {
+        "description": "List of specific IP addresses to remove (maximum 10 per request)",
+        "items": {
+          "format": "ipv4",
+          "type": "string"
+        },
+        "maxItems": 10,
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "required": [
+      "ips"
+    ],
+    "title": "RemoveAccountIPsRequest",
+    "type": "object"
+  },
+  "ip_warmup.WarmUpIp": {
+    "examples": [
+      {
+        "ip": "0.0.0.0"
+      }
+    ],
+    "properties": {
+      "ip": {
+        "description": "The IP address that you want to begin warming up.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "ips.AddIp": {
+    "examples": [
+      {
+        "count": 90323478,
+        "subusers": [
+          "subuser1",
+          "subuser2"
+        ],
+        "user_can_send": true,
+        "warmup": true
+      }
+    ],
+    "properties": {
+      "count": {
+        "description": "The amount of IPs to add to the account.",
+        "type": "integer"
+      },
+      "subusers": {
+        "description": "Array of usernames to be assigned a send IP.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "warmup": {
+        "default": false,
+        "description": "Whether or not to warmup the IPs being added.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "count"
+    ],
+    "type": "object"
+  },
+  "ips.AddIpToIpPool": {
+    "examples": [
+      {
+        "ip": "0.0.0.0"
+      }
+    ],
+    "properties": {
+      "ip": {
+        "description": "The IP address that you want to add to the named pool.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "ips.CreateIpPool": {
+    "examples": [
+      {
+        "name": "marketing"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The name of your new IP pool.",
+        "maxLength": 64,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "ips.UpdateIpPool": {
+    "examples": [
+      {
+        "name": "new_pool_name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The new name for your IP pool.",
+        "maxLength": 64,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "link_branding.AssociateBrandedLinkWithSubuser": {
+    "examples": [
+      {
+        "username": "jane@example.com"
+      }
+    ],
+    "properties": {
+      "username": {
+        "description": "The username of the subuser account that you want to associate the branded link with.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "link_branding.CreateBrandedLink": {
+    "examples": [
+      {
+        "default": true,
+        "domain": "example.com",
+        "subdomain": "mail"
+      }
+    ],
+    "properties": {
+      "default": {
+        "description": "Indicates if you want to use this link branding as the default or fallback. When setting a new default, the existing default link branding will have its default status removed automatically.",
+        "enum": [
+          true,
+          false
+        ],
+        "type": "boolean"
+      },
+      "domain": {
+        "description": "The root domain for the subdomain that you are creating the link branding for. This should match your FROM email address.",
+        "type": "string"
+      },
+      "region": {
+        "default": "us",
+        "description": "The region of the IP address. Can be `eu` or `us`.",
+        "enum": [
+          "eu",
+          "us"
+        ],
+        "type": "string"
+      },
+      "subdomain": {
+        "description": "The subdomain to create the link branding for. Must be different from the subdomain you used for authenticating your domain.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "domain"
+    ],
+    "type": "object"
+  },
+  "link_branding.UpdateBrandedLink": {
+    "examples": [
+      {
+        "default": true
+      }
+    ],
+    "properties": {
+      "default": {
+        "description": "Indicates if the branded link is set as the default. When setting a new default, the existing default link branding will have its default status removed automatically.",
+        "enum": [
+          true,
+          false
+        ],
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "lmc_campaigns.PostCampaignsRequest": {
+    "examples": [
+      {
+        "categories": [
+          "summer line"
+        ],
+        "custom_unsubscribe_url": "",
+        "html_content": "<html><head><title></title></head><body><p>Check out our summer line!</p></body></html>",
+        "id": 986724,
+        "ip_pool": "marketing",
+        "list_ids": [
+          110,
+          124
+        ],
+        "plain_content": "Check out our summer line!",
+        "segment_ids": [
+          110
+        ],
+        "sender_id": 124451,
+        "status": "Draft",
+        "subject": "New Products for Summer!",
+        "suppression_group_id": 42,
+        "title": "May Newsletter"
+      }
+    ],
+    "properties": {
+      "categories": {
+        "description": "The categories you would like associated to this campaign.",
+        "items": {
+          "type": "string"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "custom_unsubscribe_url": {
+        "description": "This is the url of the custom unsubscribe page that you provide for customers to unsubscribe from your suppression groups.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "editor": {
+        "description": "The editor used in the UI.",
+        "enum": [
+          "code",
+          "design"
+        ],
+        "type": "string"
+      },
+      "html_content": {
+        "description": "The HTML of your marketing email.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "ip_pool": {
+        "description": "The pool of IPs that you would like to send this email from.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "list_ids": {
+        "description": "The IDs of the lists you are sending this campaign to. You can have both segment IDs and list IDs",
+        "items": {
+          "type": "integer"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "plain_content": {
+        "description": "The plain text content of your emails.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "segment_ids": {
+        "description": "The segment IDs that you are sending this list to. You can have both segment IDs and list IDs. Segments are limited to 10 segment IDs.",
+        "items": {
+          "type": "integer"
+        },
+        "type": [
+          "array",
+          "null"
+        ]
+      },
+      "sender_id": {
+        "description": "The ID of the \"sender\" identity that you have created. Your recipients will see this as the \"from\" on your marketing emails.",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "subject": {
+        "description": "The subject of your campaign that your recipients will see.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "suppression_group_id": {
+        "description": "The suppression group that this marketing email belongs to, allowing recipients to opt-out of emails of this type.",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "title": {
+        "description": "The display title of your campaign. This will be viewable by you in the Marketing Campaigns UI.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "title"
+    ],
+    "title": "Campaigns Request",
+    "type": "object"
+  },
+  "lmc_campaigns.ScheduleCampaign": {
+    "examples": [
+      {
+        "send_at": 1489771528
+      }
+    ],
+    "properties": {
+      "send_at": {
+        "description": "The unix timestamp for the date and time you would like your campaign to be sent out.",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "send_at"
+    ],
+    "title": "Schedule a Campaign request",
+    "type": "object"
+  },
+  "lmc_campaigns.SendTestCampaign": {
+    "examples": [
+      {
+        "to": "your.email@example.com"
+      }
+    ],
+    "properties": {
+      "to": {
+        "description": "The email address that should receive the test campaign.",
+        "format": "email",
+        "type": "string"
+      }
+    },
+    "required": [
+      "to"
+    ],
+    "type": "object"
+  },
+  "lmc_campaigns.UpdateCampaign": {
+    "examples": [
+      {
+        "categories": [
+          "summer line"
+        ],
+        "html_content": "<html><head><title></title></head><body><p>Check out our summer line!</p></body></html>",
+        "plain_content": "Check out our summer line!",
+        "subject": "New Products for Summer!",
+        "title": "May Newsletter"
+      }
+    ],
+    "properties": {
+      "categories": {
+        "description": "The categories you want to tag on this campaign.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "html_content": {
+        "description": "The HTML content of this campaign.",
+        "type": "string"
+      },
+      "plain_content": {
+        "description": "The plain content of this campaign.",
+        "type": "string"
+      },
+      "subject": {
+        "description": "The subject line for your campaign.",
+        "type": "string"
+      },
+      "title": {
+        "description": "The title of the campaign.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "title",
+      "subject",
+      "categories",
+      "html_content",
+      "plain_content"
+    ],
+    "title": "Update a Campaign request",
+    "type": "object"
+  },
+  "lmc_campaigns.UpdateScheduledCampaign": {
+    "examples": [
+      {
+        "send_at": 1489451436
+      }
+    ],
+    "properties": {
+      "send_at": {
+        "format": "int64",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "send_at"
+    ],
+    "title": "Update a Scheduled Campaign request",
+    "type": "object"
+  },
+  "lmc_contactdb.AddRecipient": {
+    "examples": [
+      [
+        {
+          "age": 25,
+          "email": "example@example.com",
+          "first_name": "",
+          "last_name": "User"
+        },
+        {
+          "age": 25,
+          "email": "example2@example.com",
+          "first_name": "Example",
+          "last_name": "User"
+        }
+      ]
+    ],
+    "items": {
+      "properties": {
+        "age": {
+          "type": "integer"
+        },
+        "email": {
+          "description": "The email address of the recipient.",
+          "format": "email",
+          "type": "string"
+        },
+        "first_name": {
+          "description": "The first name of the recipient.",
+          "type": "string"
+        },
+        "last_name": {
+          "description": "The last name of the recipient.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "type": "object"
+    },
+    "type": "array"
+  },
+  "lmc_contactdb.AddRecipientsToContactDbList": {
+    "examples": [
+      [
+        "ZW1haWwxQGV4YW1wbGUuY29t",
+        "ZW1haWwyQHRlc3QubmV0"
+      ]
+    ],
+    "items": {
+      "type": "string"
+    },
+    "type": "array"
+  },
+  "lmc_contactdb.ContactdbSegments": {
+    "examples": [
+      {
+        "conditions": [
+          {
+            "and_or": "",
+            "field": "last_name",
+            "operator": "eq",
+            "value": "Miller"
+          },
+          {
+            "and_or": "and",
+            "field": "last_clicked",
+            "operator": "gt",
+            "value": "01/02/2015"
+          },
+          {
+            "and_or": "or",
+            "field": "clicks.campaign_identifier",
+            "operator": "eq",
+            "value": "513"
+          }
+        ],
+        "list_id": 4,
+        "name": "Last Name Miller",
+        "recipient_count": 1234
+      }
+    ],
+    "properties": {
+      "conditions": {
+        "description": "The conditions for a recipient to be included in this segment.",
+        "items": {
+          "properties": {
+            "and_or": {
+              "enum": [
+                "and",
+                "or",
+                ""
+              ],
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "operator": {
+              "enum": [
+                "eq",
+                "ne",
+                "lt",
+                "gt",
+                "contains"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "value",
+            "operator"
+          ],
+          "title": "ContactDB: Segments: Conditions",
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "list_id": {
+        "description": "The list id from which to make this segment. Not including this ID will mean your segment is created from the main contactdb rather than a list.",
+        "type": "integer"
+      },
+      "name": {
+        "description": "The name of this segment.",
+        "type": "string"
+      },
+      "recipient_count": {
+        "description": "The count of recipients in this list. This is not included on creation of segments.",
+        "type": "number"
+      }
+    },
+    "required": [
+      "name",
+      "conditions"
+    ],
+    "title": "Create a Segment request",
+    "type": "object"
+  },
+  "lmc_contactdb.CreateContactDbList": {
+    "examples": [
+      {
+        "name": "your list name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "Create a List request",
+    "type": "object"
+  },
+  "lmc_contactdb.CreateCustomField": {
+    "examples": [
+      {
+        "name": "pet",
+        "type": "text"
+      }
+    ],
+    "properties": {
+      "name": {
+        "type": "string"
+      },
+      "type": {
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "lmc_contactdb.DeleteContactDbLists": {
+    "examples": [
+      [
+        1,
+        2,
+        3,
+        4
+      ]
+    ],
+    "items": {
+      "type": "integer"
+    },
+    "type": "array"
+  },
+  "lmc_contactdb.DeleteRecipients": {
+    "examples": [
+      [
+        "recipient_id1",
+        "recipient_id2"
+      ]
+    ],
+    "items": {
+      "type": "string"
+    },
+    "type": "array"
+  },
+  "lmc_contactdb.ExportRecipient": {
+    "properties": {
+      "file_type": {
+        "default": "csv",
+        "description": "File type for export file. Choose from `json` or `csv`.",
+        "enum": [
+          "csv",
+          "json"
+        ],
+        "type": "string"
+      },
+      "list_ids": {
+        "description": "IDs of the recipient lists you want to export.",
+        "items": {
+          "type": "integer"
+        },
+        "type": "array"
+      },
+      "max_file_size": {
+        "default": 5000,
+        "description": "The maximum size of an export file in MB. Note that when this option is specified, multiple output files may be returned from the export.",
+        "type": "integer"
+      },
+      "notifications": {
+        "properties": {
+          "email": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "segment_ids": {
+        "description": "IDs of the recipient segments you want to export.",
+        "items": {
+          "type": "integer"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "lmc_contactdb.SearchRecipient": {
+    "examples": [
+      {
+        "conditions": [
+          {
+            "and_or": "",
+            "field": "birthday",
+            "operator": "eq",
+            "value": "01/12/1985"
+          },
+          {
+            "and_or": "",
+            "field": "birthday",
+            "operator": "eq",
+            "value": "01/12/1985"
+          },
+          {
+            "and_or": "",
+            "field": "birthday",
+            "operator": "eq",
+            "value": "01/12/1985"
+          },
+          {
+            "and_or": "",
+            "field": "birthday",
+            "operator": "eq",
+            "value": "01/12/1985"
+          }
+        ],
+        "list_id": -27497588
+      }
+    ],
+    "properties": {
+      "conditions": {
+        "description": "The conditions by which this segment should be created.",
+        "items": {
+          "properties": {
+            "and_or": {
+              "enum": [
+                "and",
+                "or",
+                ""
+              ],
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "operator": {
+              "enum": [
+                "eq",
+                "ne",
+                "lt",
+                "gt",
+                "contains"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "value",
+            "operator"
+          ],
+          "title": "ContactDB: Segments: Conditions",
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "list_id": {
+        "format": "int32",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "list_id",
+      "conditions"
+    ],
+    "type": "object"
+  },
+  "lmc_contactdb.UpdateContactDbList": {
+    "examples": [
+      {
+        "name": "newlistname"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The new name for your list. ",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "Update a List request",
+    "type": "object"
+  },
+  "lmc_contactdb.UpdateRecipient": {
+    "examples": [
+      [
+        {
+          "email": "jones@example.com",
+          "first_name": "Guy",
+          "last_name": "Jones"
+        }
+      ]
+    ],
+    "items": {
+      "properties": {
+        "email": {
+          "format": "email",
+          "type": "string"
+        },
+        "first_name": {
+          "description": "The first name of the recipient. This is one of the default custom fields.",
+          "type": "string"
+        },
+        "last_name": {
+          "description": "The last name of the recipient. This is one of the default custom fields.",
+          "type": "string"
+        }
+      },
+      "required": [
+        "email"
+      ],
+      "type": "object"
+    },
+    "type": "array"
+  },
+  "lmc_contactdb.UpdateSegment": {
+    "examples": [
+      {
+        "conditions": [
+          {
+            "and_or": "",
+            "field": "last_name",
+            "operator": "eq",
+            "value": "Miller"
+          }
+        ],
+        "list_id": 5,
+        "name": "The Millers"
+      }
+    ],
+    "properties": {
+      "conditions": {
+        "description": "The conditions by which this segment should be created.",
+        "items": {
+          "properties": {
+            "and_or": {
+              "enum": [
+                "and",
+                "or",
+                ""
+              ],
+              "type": "string"
+            },
+            "field": {
+              "type": "string"
+            },
+            "operator": {
+              "enum": [
+                "eq",
+                "ne",
+                "lt",
+                "gt",
+                "contains"
+              ],
+              "type": "string"
+            },
+            "value": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "field",
+            "value",
+            "operator"
+          ],
+          "title": "ContactDB: Segments: Conditions",
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "list_id": {
+        "description": "The list ID you would like this segment to be built from.",
+        "type": "number"
+      },
+      "name": {
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "lmc_senders.CreateSender": {
+    "examples": [
+      {
+        "address": "123 Elm St.",
+        "address_2": "Apt. 456",
+        "city": "Denver",
+        "country": "United States",
+        "from": {
+          "email": "from@example.com",
+          "name": "Example INC"
+        },
+        "nickname": "My Sender ID",
+        "reply_to": {
+          "email": "replyto@example.com",
+          "name": "Example INC"
+        },
+        "state": "Colorado",
+        "zip": "80202"
+      }
+    ],
+    "properties": {
+      "address": {
+        "description": "The physical address of the sender identity.",
+        "type": "string"
+      },
+      "address_2": {
+        "description": "Additional sender identity address information.",
+        "type": "string"
+      },
+      "city": {
+        "description": "The city of the sender identity.",
+        "type": "string"
+      },
+      "country": {
+        "description": "The country of the sender identity.",
+        "type": "string"
+      },
+      "from": {
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
+      "nickname": {
+        "description": "A nickname for the sender identity. Not used for sending.",
+        "type": "string"
+      },
+      "reply_to": {
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
+      "state": {
+        "description": "The state of the sender identity.",
+        "type": "string"
+      },
+      "zip": {
+        "description": "The zipcode of the sender identity.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "address",
+      "city",
+      "country",
+      "nickname"
+    ],
+    "type": "object"
+  },
+  "lmc_senders.SenderIdRequest": {
+    "examples": [
+      {
+        "address": "123 Elm St.",
+        "address_2": "Apt. 456",
+        "city": "Denver",
+        "country": "United States",
+        "from": {
+          "email": "from@example.com",
+          "name": "Example INC"
+        },
+        "nickname": "My Sender ID",
+        "reply_to": {
+          "email": "replyto@example.com",
+          "name": "Example INC"
+        },
+        "state": "Colorado",
+        "zip": "80202"
+      }
+    ],
+    "properties": {
+      "address": {
+        "description": "The physical address of the sender identity.",
+        "type": "string"
+      },
+      "address_2": {
+        "description": "Additional sender identity address information.",
+        "type": "string"
+      },
+      "city": {
+        "description": "The city of the sender identity.",
+        "type": "string"
+      },
+      "country": {
+        "description": "The country of the sender identity.",
+        "type": "string"
+      },
+      "from": {
+        "properties": {
+          "email": {
+            "description": "The email address from which your recipient will receive emails.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the from email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "nickname": {
+        "description": "A nickname for the sender identity. Not used for sending.",
+        "type": "string"
+      },
+      "reply_to": {
+        "properties": {
+          "email": {
+            "description": "The email address to which your recipient will reply.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the reply to email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "state": {
+        "description": "The state of the sender identity.",
+        "type": "string"
+      },
+      "zip": {
+        "description": "The zipcode of the sender identity.",
+        "type": "string"
+      }
+    },
+    "title": "Sender ID Request",
+    "type": "object"
+  },
+  "logs.EmailLogsGetMessagesByFilterRequest": {
+    "properties": {
+      "limit": {
+        "default": 10,
+        "description": "Number of messages to return (1–1000).",
+        "maximum": 1000,
+        "minimum": 1,
+        "type": "integer"
+      },
+      "query": {
+        "description": "**Allowed event fields and operators**\n\n- sg_message_id: `=`\n- subject: `=`\n- to_email: `=`\n- status: `IN`\n- reason: `=`\n- categories: `IN`\n- sg_message_id_created_at: `>`, `<`, `>=`, `<=`\n\n**Notes:**\n\n- multiple conditions (up to 160) can be combined with `AND`\n- nesting is not allowed\n- `IN` operator accepts a list of string values: `field IN ('value1', 'value2')`\n",
+        "examples": [
+          "sg_message_id_created_at > TIMESTAMP \"2025-01-01T00:00:00Z\" AND sg_message_id_created_at < TIMESTAMP \"2025-02-01T00:00:00Z\" AND status IN ('delivered', 'processed') AND categories IN ('newsletter', 'marketing')"
+        ],
+        "type": "string"
+      },
+      "subusers": {
+        "description": "For requests authenticated as the parent account,\nthis argument must be passed if the desired messages belong to a subuser.\nYou can only call this endpoint for 1 subuser at a time.\n",
+        "examples": [
+          [
+            "20223230"
+          ]
+        ],
+        "items": {
+          "format": "^\\d+$",
+          "type": "string"
+        },
+        "maxItems": 1,
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "mail.SendMail": {
+    "properties": {
+      "asm": {
+        "description": "An object allowing you to specify how to handle unsubscribes. With SendGrid, an unsubscribe is the action an email recipient takes when they opt-out of receiving your messages. A suppression is the action you take as a sender to filter or suppress an unsubscribed address from your email send. From the perspective of the recipient, your suppression is the result of their unsubscribe. See [**Suppression Groups**](https://www.twilio.com/docs/sendgrid/api-reference/suppressions-unsubscribe-groups/create-a-new-suppression-group) for more information.",
+        "properties": {
+          "group_id": {
+            "description": "The unsubscribe group to associate with this email. See the [Suppressions API](https://docs.sendgrid.com/api-reference/suppressions/) to manage unsubscribe group IDs.",
+            "type": "integer"
+          },
+          "groups_to_display": {
+            "description": "An array containing the unsubscribe groups that you would like to be displayed to a recipient on the unsubscribe preferences page. This page is displayed in the recipient's browser when they click the unsubscribe link in your message.",
+            "items": {
+              "type": "integer"
+            },
+            "maxItems": 25,
+            "type": "array"
+          }
+        },
+        "required": [
+          "group_id"
+        ],
+        "type": "object"
+      },
+      "attachments": {
+        "description": "An array of objects where you can define any attachments to be included with the message. Each object contains a `content` property, which must be a Base64 encoded string of the attachment itself, and `type`, `filename`, `disposition`, and `content_id` properties that tell SendGrid how to handle the attachment.",
+        "items": {
+          "properties": {
+            "content": {
+              "description": "The Base64 encoded content of the attachment.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "content_id": {
+              "description": "The attachment's content ID. The `content_id` is used when the `disposition` is set to `inline` and the attachment is an image, allowing the file to be displayed within the body of the email.",
+              "type": "string"
+            },
+            "disposition": {
+              "default": "attachment",
+              "description": "The attachment's content-disposition specifies how you would like the attachment to be displayed. For example, `inline` results in the attached file being displayed automatically within the message while `attachment` results in the attached file requiring some action to be taken before it is displayed such as opening or downloading the file.",
+              "enum": [
+                "inline",
+                "attachment"
+              ],
+              "type": "string"
+            },
+            "filename": {
+              "description": "The attachment's filename, including the file extension.",
+              "type": "string"
+            },
+            "type": {
+              "description": "The MIME type of the content you are attaching (e.g., `image/jpeg` or `application/pdf`).",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "content",
+            "filename"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "batch_id": {
+        "description": "An ID representing a batch of emails to be sent at the same time. Including a `batch_id` in your request allows you to include this email in that batch. It also enables you to cancel or pause the delivery of that batch. See the [Scheduled Sends API](https://sendgrid.com/docs/api-reference/) for more information about scheduling your email.",
+        "type": "string"
+      },
+      "categories": {
+        "description": "An array of category names assigned to this message. Categories allow you to group messages by categories you define. Categories should be used sparingly to create general groups that are relevant to you. Categories are not meant to be used to track individual mail sends. For more granular categorization and tracking, use the `custom_args` property. A category name cannot exceed 255 characters. See [**Working with Categories**](https://docs.sendgrid.com/for-developers/sending-email/categories) for more information.",
+        "items": {
+          "maxLength": 255,
+          "type": "string"
+        },
+        "maxItems": 10,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "content": {
+        "description": "An array of objects, each containing a message body's content and [MIME type](https://developer.mozilla.org/en-US/docs/Web/HTTP/Basics_of_HTTP/MIME_types). You must specify at least one MIME type and may include multiple. To include more than one MIME type, add an object for each type to the array.",
+        "items": {
+          "properties": {
+            "type": {
+              "description": "The MIME type of the content assigned in the `value` property of this object (e.g., `text/plain` or `text/html`).",
+              "minLength": 1,
+              "type": "string"
+            },
+            "value": {
+              "description": "The content of your message in the specified MIME type assigned in the `type` property of this object.",
+              "minLength": 1,
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "value"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      },
+      "custom_args": {
+        "description": "Values that are specific to the entire send that will be carried along with the email and its activity data. Substitutions will not be made on custom arguments, so any string that is assigned to this property will be assumed to be the custom argument that you would like to be used. This parameter is overridden by `custom_args` set at the personalizations level. Total `custom_args` size may not exceed 10,000 bytes.",
+        "type": "string"
+      },
+      "from": {
+        "properties": {
+          "email": {
+            "description": "The email address from which messages are sent. This address should be a verified sender in your Twilio SendGrid account. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+            "format": "email",
+            "type": "string"
+          },
+          "name": {
+            "description": "A name or title associated with the email address such as \"Support\" or \"Alex\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "From Email Object",
+        "type": "object"
+      },
+      "headers": {
+        "description": "A collection of JSON property name and property value pairs allowing you to specify handling instructions for your email. You may not override the following headers: `x-sg-id`, `x-sg-eid`, `received`, `dkim-signature`, `Content-Type`, `Content-Transfer-Encoding`, `To`, `From`, `Subject`, `Reply-To`, `CC`, `BCC`.",
+        "type": "object"
+      },
+      "ip_pool_name": {
+        "description": "The IP Pool that you would like to send this email from. IP Pools allow you to group your dedicated Twilio SendGrid IP addresses in order to have more control over your deliverability. See [**IP Pools**](https://docs.sendgrid.com/ui/account-and-settings/ip-pools) for more information.",
+        "maxLength": 64,
+        "minLength": 2,
+        "type": "string"
+      },
+      "mail_settings": {
+        "description": "A collection of different mail settings that you can use to specify how you would like this email to be handled. Mail settings provide extra functionality to your mail send. See [**Mail Settings**](https://docs.sendgrid.com/ui/account-and-settings/mail) for more information.",
+        "properties": {
+          "bypass_bounce_management": {
+            "description": "Allows you to bypass the bounce list to ensure that the email is delivered to recipients. Spam report and unsubscribe lists will still be checked; addresses on these other lists will not receive the message. This filter cannot be combined with the `bypass_list_management` filter. See the [the \"Bypass suppressions\" section of our **Suppressions Overview**](https://sendgrid.com/docs/ui/sending-email/index-suppressions/#bypass-suppressions) for more about bypass filters.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "bypass_list_management": {
+            "description": "Allows you to bypass all unsubscribe groups and suppressions to ensure that the email is delivered to every single recipient. This should only be used in emergencies when it is absolutely necessary that every recipient receives your email. This filter cannot be combined with any other bypass filters. See the [the \"Bypass suppressions\" section of our **Suppressions Overview**](https://sendgrid.com/docs/ui/sending-email/index-suppressions/#bypass-suppressions) for more about bypass filters.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "bypass_spam_management": {
+            "description": "Allows you to bypass the spam report list to ensure that the email is delivered to recipients. Bounce and unsubscribe lists will still be checked; addresses on these other lists will not receive the message. This filter cannot be combined with the `bypass_list_management` filter. See the [the \"Bypass suppressions\" section of our **Suppressions Overview**](https://sendgrid.com/docs/ui/sending-email/index-suppressions/#bypass-suppressions) for more about bypass filters.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "bypass_unsubscribe_management": {
+            "description": "Allows you to bypass the global unsubscribe list to ensure that the email is delivered to recipients. Bounce and spam report lists will still be checked; addresses on these other lists will not receive the message. This filter applies only to global unsubscribes and will not bypass group unsubscribes. This filter cannot be combined with the `bypass_list_management` filter. See the [the \"Bypass suppressions\" section of our **Suppressions Overview**](https://sendgrid.com/docs/ui/sending-email/index-suppressions/#bypass-suppressions) for more about bypass filters.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "footer": {
+            "description": "Inserts a custom footer at the bottom of the text and HTML bodies of your messages. Use the `html` and `text` properties to include the content of the footers to be inserted.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              },
+              "html": {
+                "description": "The HTML content of your footer.",
+                "type": "string"
+              },
+              "text": {
+                "description": "The plain text content of your footer.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "sandbox_mode": {
+            "description": "Sandbox Mode allows you to send a test email to ensure that your request body is valid and formatted correctly.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      },
+      "personalizations": {
+        "description": "An array of messages and their metadata. Each object within the `personalizations` array can be thought of as a mail envelope—it defines who should receive an individual message and how that message should be handled. See [**Personalizations**](https://sendgrid.com/docs/for-developers/sending-email/personalizations/) for more information.",
+        "items": {
+          "properties": {
+            "bcc": {
+              "description": "An array of recipients to whom a blind carbon copy of your email will be sent. Each object in this array must contain a recipient's email address. Each object in the array may optionally contain a recipient's name.",
+              "items": {
+                "properties": {
+                  "email": {
+                    "description": "An email address to which a message is sent. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+                    "format": "email",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "A name or title associated with the email address such as \"Alex\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "title": "To Email Object",
+                "type": "object"
+              },
+              "maxItems": 1000,
+              "type": "array"
+            },
+            "cc": {
+              "description": "An array of recipients to whom a copy of the email will be sent. Each object in this array must contain a recipient's email address. Each object in the array may optionally contain a recipient's name.",
+              "items": {
+                "properties": {
+                  "email": {
+                    "description": "An email address to which a message is sent. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+                    "format": "email",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "A name or title associated with the email address such as \"Alex\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "title": "To Email Object",
+                "type": "object"
+              },
+              "maxItems": 1000,
+              "type": "array"
+            },
+            "custom_args": {
+              "description": "Values that are specific to this personalization that will be carried along with the email and its activity data. Substitutions will not be made on custom arguments, so any string that is assigned to this property will be assumed to be the custom argument that you would like to be used. This field may not exceed 10,000 bytes.",
+              "maxProperties": 10000,
+              "type": "object"
+            },
+            "dynamic_template_data": {
+              "description": "A collection property names that will be substituted by their corresponding property values in the `subject`, `reply-to` and `content` portions of a SendGrid Dynamic Template. Dynamic template data is available in a template using [Handlebars](https://docs.sendgrid.com/for-developers/sending-email/using-handlebars) syntax. This property should be used in combination with a Dynamic Template, which can be identified by a `template_id` starting with `d-`. See [**How to Send an Email with Dynamic Templates**](https://docs.sendgrid.com/ui/sending-email/how-to-send-an-email-with-dynamic-templates) for more information.",
+              "type": "object"
+            },
+            "from": {
+              "properties": {
+                "email": {
+                  "description": "The email address from which messages are sent. This address should be a verified sender in your Twilio SendGrid account. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+                  "format": "email",
+                  "type": "string"
+                },
+                "name": {
+                  "description": "A name or title associated with the email address such as \"Support\" or \"Alex\".",
+                  "type": "string"
+                }
+              },
+              "required": [
+                "email"
+              ],
+              "title": "From Email Object",
+              "type": "object"
+            },
+            "headers": {
+              "description": "A collection of JSON property name and property value pairs allowing you to specify handling instructions for your email. You may not override the following headers: `x-sg-id`, `x-sg-eid`, `received`, `dkim-signature`, `Content-Type`, `Content-Transfer-Encoding`, `To`, `From`, `Subject`, `Reply-To`, `CC`, `BCC`.",
+              "type": "object"
+            },
+            "send_at": {
+              "description": "A [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) allowing you to specify when your email should be sent. A send cannot be scheduled more than 72 hours in advance.",
+              "type": "integer"
+            },
+            "subject": {
+              "description": "The subject of your email. See line length limits specified in [RFC 2822](https://www.rfc-editor.org/rfc/rfc2822#section-2.1.1) for guidance on subject line character limits.",
+              "minLength": 1,
+              "type": "string"
+            },
+            "substitutions": {
+              "additionalProperties": {
+                "type": "string"
+              },
+              "description": "A collection property names that will be substituted by their corresponding property values in the `subject`, `reply-to` and `content` portions of your message. Name and value pairs follow the pattern `\"substitution_tag\":\"value to substitute\"`. The total collective size of your substitutions may not exceed 10,000 bytes per personalization object. Substitutions allow you to insert data without using SendGrid's Dynamic Templates. This property should not be used in combination with a Dynamic Template, which can be identified by a `template_id` starting with `d-`. See [**Substitution Tags**](https://docs.sendgrid.com/for-developers/sending-email/substitution-tags) for more information.",
+              "maxProperties": 10000,
+              "type": "object"
+            },
+            "to": {
+              "description": "An array of recipients to whom the email will be sent. Each object in this array must contain a recipient's email address. Each object in the array may optionally contain a recipient's name.",
+              "items": {
+                "properties": {
+                  "email": {
+                    "description": "An email address to which a message is sent. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+                    "format": "email",
+                    "type": "string"
+                  },
+                  "name": {
+                    "description": "A name or title associated with the email address such as \"Alex\".",
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "email"
+                ],
+                "title": "To Email Object",
+                "type": "object"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "to"
+          ],
+          "type": "object"
+        },
+        "maxItems": 1000,
+        "type": "array",
+        "uniqueItems": false
+      },
+      "reply_to": {
+        "properties": {
+          "email": {
+            "description": "An email address to which a message is sent. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+            "format": "email",
+            "type": "string"
+          },
+          "name": {
+            "description": "A name or title associated with the email address such as \"Alex\".",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "title": "To Email Object",
+        "type": "object"
+      },
+      "reply_to_list": {
+        "description": "An array of recipients to whom replies will be sent. Each object in this array must contain a recipient's email address. Each object in the array may optionally contain a recipient's name. You can use either the `reply_to` property or `reply_to_list` property but not both.",
+        "items": {
+          "properties": {
+            "email": {
+              "description": "An email address to which a message is sent. Email addresses specified in `personalizations` will override addresses set at the message level outside of the `personalizations` object.",
+              "format": "email",
+              "type": "string"
+            },
+            "name": {
+              "description": "A name or title associated with the email address such as \"Alex\".",
+              "type": "string"
+            }
+          },
+          "required": [
+            "email"
+          ],
+          "title": "To Email Object",
+          "type": "object"
+        },
+        "maxItems": 1000,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "send_at": {
+        "description": "A [unix timestamp](https://en.wikipedia.org/wiki/Unix_time) allowing you to specify when your email should be sent. A send cannot be scheduled more than 72 hours in advance. This property may be overridden by the `send_at` property set at the personalizations level.",
+        "type": "integer"
+      },
+      "subject": {
+        "description": "The global or _message level_ subject of your email. Subject lines set in personalizations objects will override this global subject line. See line length limits specified in [RFC 2822](https://www.rfc-editor.org/rfc/rfc2822#section-2.1.1) for guidance on subject line character limits.",
+        "minLength": 1,
+        "type": "string"
+      },
+      "template_id": {
+        "description": "An email template ID. A template that contains a subject and content—either text or html—will override any subject and content values specified at the `personalizations` or message level. If a template ID begins with `d-`, it is a dynamic template and will work with the `dynamic_template_data` property. If the template ID does not begin with `d-`, it is a standard SendGrid template and will work with the `substitutions` property. See [**How to Send an Email with Dynamic Templates**](https://docs.sendgrid.com/ui/sending-email/how-to-send-an-email-with-dynamic-templates) for more information about working with templates.",
+        "type": "string"
+      },
+      "tracking_settings": {
+        "description": "Settings to determine how you would like to track the metrics of how your recipients interact with your email. See [**Tracking Settings**](https://docs.sendgrid.com/ui/account-and-settings/tracking) for more information.",
+        "properties": {
+          "click_tracking": {
+            "description": "Allows you to track if a recipient clicked a link in your email.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              },
+              "enable_text": {
+                "description": "Indicates if this setting should be included in the `text/plain` portion of your email.",
+                "type": "boolean"
+              }
+            },
+            "type": "object"
+          },
+          "ganalytics": {
+            "description": "Allows you to enable tracking provided by Google Analytics. See [**Google Analytics and SendGrid Statistics**](https://docs.sendgrid.com/ui/analytics-and-reporting/google-analytics) for more information about this property.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              },
+              "utm_campaign": {
+                "description": "The name of the campaign.",
+                "type": "string"
+              },
+              "utm_content": {
+                "description": "Used to differentiate your campaign from advertisements.",
+                "type": "string"
+              },
+              "utm_medium": {
+                "description": "Name of the marketing medium. (e.g., Email)",
+                "type": "string"
+              },
+              "utm_source": {
+                "description": "Name of the referrer source. (e.g., Google, SomeDomain.com, or Marketing Email)",
+                "type": "string"
+              },
+              "utm_term": {
+                "description": "Used to identify any paid keywords.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "open_tracking": {
+            "description": "Allows you to track if the email was opened by including a single transparent pixel image in the body of the message content. When the message is opened, a request for the pixel is sent. That request indicates to Twilio SendGrid that the message was opened.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              },
+              "substitution_tag": {
+                "description": "Allows you to specify a substitution tag that you can insert in the body of your email at a location that you desire. This tag will be replaced by the open tracking pixel.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          },
+          "subscription_tracking": {
+            "description": "Allows you to insert a subscription management link at the bottom of the text and HTML bodies of your email. If you would like to specify the location of the link within your email, you may use the `substitution_tag` property.",
+            "properties": {
+              "enable": {
+                "description": "Indicates if this setting is enabled.",
+                "type": "boolean"
+              },
+              "html": {
+                "description": "HTML to be appended to the email with the subscription tracking link.",
+                "type": "string"
+              },
+              "substitution_tag": {
+                "description": "A tag that will be replaced with the unsubscribe URL. If this property is used, it will override both the `text` and `html` properties. The URL of the link will be placed at the substitution tag's location in the message body with no additional formatting.",
+                "type": "string"
+              },
+              "text": {
+                "description": "Text to be appended to the email with the subscription tracking link.",
+                "type": "string"
+              }
+            },
+            "type": "object"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "personalizations",
+      "from"
+    ],
+    "type": "object"
+  },
+  "mail_settings.MailSettingsBouncePurge": {
+    "examples": [
+      {
+        "enabled": false,
+        "hard_bounces": 1234,
+        "soft_bounces": 1234
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if the Bounce Purge mail setting is enabled.",
+        "type": "boolean"
+      },
+      "hard_bounces": {
+        "description": "The number of days after which SendGrid will purge all contacts from your hard bounces suppression lists.",
+        "type": [
+          "integer",
+          "null"
+        ]
+      },
+      "soft_bounces": {
+        "description": "The number of days after which SendGrid will purge all contacts from your soft bounces suppression lists.",
+        "type": [
+          "integer",
+          "null"
+        ]
+      }
+    },
+    "title": "Mail Settings: Bounce Purge",
+    "type": "object"
+  },
+  "mail_settings.MailSettingsFooter": {
+    "examples": [
+      {
+        "enabled": true,
+        "html_content": "Example HTML content",
+        "plain_content": "Example plain content"
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if the Footer mail setting is currently enabled.",
+        "type": "boolean"
+      },
+      "html_content": {
+        "description": "The custom HTML content of your email footer.",
+        "type": "string"
+      },
+      "plain_content": {
+        "description": "The plain text content of your email footer.",
+        "type": "string"
+      }
+    },
+    "title": "Mail Settings: Footer",
+    "type": "object"
+  },
+  "mail_settings.MailSettingsForwardBounce": {
+    "examples": [
+      {
+        "email": "email@example.com",
+        "enabled": false
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "The email address that you would like your bounce reports forwarded to.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "enabled": {
+        "description": "Indicates if the bounce forwarding mail setting is enabled.",
+        "type": "boolean"
+      }
+    },
+    "title": "Mail Settings: Forward Bounce",
+    "type": "object"
+  },
+  "mail_settings.MailSettingsForwardSpam": {
+    "examples": [
+      {
+        "email": "",
+        "enabled": true
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "The email address where you would like the spam reports to be forwarded.",
+        "type": "string"
+      },
+      "enabled": {
+        "description": "Indicates if the Forward Spam setting is enabled.",
+        "type": "boolean"
+      }
+    },
+    "title": "Mail Settings: Forward Spam",
+    "type": "object"
+  },
+  "mail_settings.UpdateAddressWhitelist": {
+    "examples": [
+      {
+        "enabled": true,
+        "list": [
+          "email1@example.com",
+          "example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if your email address whitelist is enabled.",
+        "type": "boolean"
+      },
+      "list": {
+        "description": "Either a single email address that you want whitelisted or a domain, for which all email addresses belonging to this domain will be whitelisted.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "mail_settings.UpdateTemplate": {
+    "examples": [
+      {
+        "enabled": true,
+        "html_content": "<% body %>"
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if you want to enable the legacy email template mail setting.",
+        "type": "boolean"
+      },
+      "html_content": {
+        "description": "The new HTML content for your legacy email template.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "mc_contacts.DeleteContactIdentifier": {
+    "examples": [
+      {
+        "identifier_type": "PHONENUMBERID",
+        "identifier_value": "15555555555"
+      }
+    ],
+    "properties": {
+      "identifier_type": {
+        "description": "The type of identifier you are removing from the contact.",
+        "enum": [
+          "EMAIL",
+          "PHONENUMBERID",
+          "EXTERNALID",
+          "ANONYMOUSID"
+        ],
+        "type": "string"
+      },
+      "identifier_value": {
+        "description": "The value of the identifier you want to remove from the contact.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "identifier_type",
+      "identifier_value"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.ExportContact": {
+    "properties": {
+      "file_type": {
+        "default": "csv",
+        "description": "File type for export file. Choose from `json` or `csv`.",
+        "enum": [
+          "csv",
+          "json"
+        ],
+        "type": "string"
+      },
+      "list_ids": {
+        "description": "IDs of the contact lists you want to export.",
+        "items": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "max_file_size": {
+        "default": 5000,
+        "description": "The maximum size of an export file in MB. Note that when this option is specified, multiple output files may be returned from the export.",
+        "type": "integer"
+      },
+      "notifications": {
+        "properties": {
+          "email": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      },
+      "segment_ids": {
+        "description": "IDs of the contact segments you want to export.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "mc_contacts.GetContactByIdentifiers": {
+    "description": "",
+    "examples": [
+      {
+        "identifiers": [
+          "contact@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "identifiers": {
+        "description": "One or more more identifier values of the given identifier type to search for in your Marketing Campaigns contacts.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "identifiers"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.ImportContact": {
+    "properties": {
+      "field_mappings": {
+        "description": "Import file header to reserved/custom field mapping.",
+        "items": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": false
+      },
+      "file_type": {
+        "description": "Upload file type.",
+        "enum": [
+          "csv"
+        ],
+        "type": "string"
+      },
+      "list_ids": {
+        "description": "All contacts will be added to each of the specified lists.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "file_type",
+      "field_mappings"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.ListBatchedContact": {
+    "description": "Array of IDs",
+    "examples": [
+      {
+        "ids": [
+          "1234",
+          "1235"
+        ]
+      }
+    ],
+    "properties": {
+      "ids": {
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 100,
+        "type": "array"
+      }
+    },
+    "required": [
+      "ids"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.ListContactByEmail": {
+    "description": "",
+    "examples": [
+      {
+        "emails": [
+          "jane_doe@example.com",
+          "john_doe@example.com",
+          "joann_doe@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "anonymous_id": {
+        "description": "The contact's Anonymous ID.",
+        "maxLength": 254,
+        "type": "string"
+      },
+      "emails": {
+        "description": "One or more primary and/or alternate email addresses to search for in your Marketing Campaigns contacts.",
+        "items": {
+          "maxLength": 100,
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "external_id": {
+        "description": "The contact's External ID.",
+        "maxLength": 254,
+        "type": "string"
+      },
+      "phone_number_id": {
+        "description": "The contact's Phone Number ID. This is required to be a valid phone number.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "emails"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.SearchContact": {
+    "examples": [
+      {
+        "query": "email LIKE 'ENTER_COMPLETE_OR_PARTIAL_EMAIL_ADDRESS_HERE%' AND CONTAINS(list_ids, 'YOUR_LIST_IDs')"
+      }
+    ],
+    "properties": {
+      "query": {
+        "description": "An SGQL search string or other pattern.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "query"
+    ],
+    "type": "object"
+  },
+  "mc_contacts.UpdateContact": {
+    "properties": {
+      "contacts": {
+        "description": "One or more contacts objects that you intend to upsert. Each contact needs to include at least one of `email`, `phone_number_id`, `external_id`, or `anonymous_id` as an identifier.",
+        "items": {
+          "properties": {
+            "address_line_1": {
+              "description": "The first line of the address.",
+              "maxLength": 100,
+              "type": "string"
+            },
+            "address_line_2": {
+              "description": "An optional second line for the address.",
+              "maxLength": 100,
+              "type": "string"
+            },
+            "alternate_emails": {
+              "description": "Additional emails associated with the contact.",
+              "items": {
+                "maxLength": 254,
+                "type": "string"
+              },
+              "maxItems": 5,
+              "minItems": 0,
+              "type": "array"
+            },
+            "anonymous_id": {
+              "description": "The contact's Anonymous ID.",
+              "maxLength": 254,
+              "type": "string"
+            },
+            "city": {
+              "description": "The contact's city.",
+              "maxLength": 60,
+              "type": "string"
+            },
+            "country": {
+              "description": "The contact's country. Can be a full name or an abbreviation.",
+              "maxLength": 50,
+              "type": "string"
+            },
+            "custom_fields": {
+              "description": "An object of custom field IDs and the values you want to associate with those custom fields. You can retrieve the IDs of your custom fields from the [Get All Field Definitions endpoint](https://docs.sendgrid.com/api-reference/custom-fields/get-all-field-definitions).",
+              "examples": [
+                {
+                  "e2": "blue",
+                  "w1": "coffee",
+                  "w33": "42"
+                }
+              ],
+              "properties": {
+                "w1": {
+                  "description": "The properties in this object are made up of a key (the custom field ID) and value you want associated with that custom field. For example `{\"w1\": \"coffee\"}`.",
+                  "type": "string"
+                }
+              },
+              "type": "object"
+            },
+            "email": {
+              "description": "The contact's primary email. This is required to be a valid email.",
+              "maxLength": 254,
+              "type": "string"
+            },
+            "external_id": {
+              "description": "The contact's External ID.",
+              "maxLength": 254,
+              "type": "string"
+            },
+            "first_name": {
+              "description": "The contact's personal name.",
+              "maxLength": 50,
+              "type": "string"
+            },
+            "last_name": {
+              "description": "The contact's family name.",
+              "maxLength": 50,
+              "type": "string"
+            },
+            "phone_number_id": {
+              "description": "The contact's Phone Number ID. This must be a valid phone number.",
+              "type": "string"
+            },
+            "postal_code": {
+              "description": "The contact's ZIP code or other postal code.",
+              "type": "string"
+            },
+            "state_province_region": {
+              "description": "The contact's state, province, or region.",
+              "maxLength": 50,
+              "type": "string"
+            }
+          },
+          "title": "contact-request",
+          "type": "object"
+        },
+        "maxItems": 30000,
+        "minItems": 1,
+        "type": "array"
+      },
+      "list_ids": {
+        "description": "An array of List ID strings that this contact will be added to.",
+        "items": {
+          "format": "uuid",
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "contacts"
+    ],
+    "type": "object"
+  },
+  "mc_custom_fields.CreateFieldDefinition": {
+    "examples": [
+      {
+        "field_type": "Text",
+        "name": "custom_field_name"
+      }
+    ],
+    "properties": {
+      "field_type": {
+        "enum": [
+          "Text",
+          "Number",
+          "Date"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "field_type"
+    ],
+    "type": "object"
+  },
+  "mc_custom_fields.UpdateFieldDefinition": {
+    "examples": [
+      {
+        "name": "new_custom_field_name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "mc_designs.DesignDuplicateInput": {
+    "examples": [
+      {
+        "editor": "design",
+        "name": "Ahoy, Cake or Pie Cafe!"
+      }
+    ],
+    "properties": {
+      "editor": {
+        "description": "The editor used in the UI.",
+        "enum": [
+          "code",
+          "design"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "default": "Duplicate: <original design name>",
+        "description": "The name of the new design.",
+        "type": "string"
+      }
+    },
+    "title": "Design Duplicate Design Input",
+    "type": "object"
+  },
+  "mc_designs.DesignInput": {
+    "examples": [
+      {
+        "editor": "design",
+        "html_content": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n<html data-editor-version=\"2\" class=\"sg-campaigns\" xmlns=\"http://www.w3.org/1999/xhtml\">\n    <head>\n      <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\n      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1\">\n      <!--[if !mso]><!-->\n      <meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\">\n      <!--<![endif]-->\n      <!--[if (gte mso 9)|(IE)]>\n      <xml>\n        <o:OfficeDocumentSettings>\n          <o:AllowPNG/>\n          <o:PixelsPerInch>96</o:PixelsPerInch>\n        </o:OfficeDocumentSettings>\n      </xml>\n      <![endif]-->\n      <!--[if (gte mso 9)|(IE)]>\n  <style type=\"text/css\">\n    body {width: 600px;margin: 0 auto;}\n    table {border-collapse: collapse;}\n    table, td {mso-table-lspace: 0pt;mso-table-rspace: 0pt;}\n    img {-ms-interpolation-mode: bicubic;}\n  </style>\n<![endif]-->\n      <style type=\"text/css\">\n    body, p, div {\n      font-family: arial,helvetica,sans-serif;\n      font-size: 14px;\n    }\n    body {\n      color: #000000;\n    }\n    body a {\n      color: #1188E6;\n      text-decoration: none;\n    }\n    p { margin: 0; padding: 0; }\n    table.wrapper {\n      width:100% !important;\n      table-layout: fixed;\n      -webkit-font-smoothing: antialiased;\n      -webkit-text-size-adjust: 100%;\n      -moz-text-size-adjust: 100%;\n      -ms-text-size-adjust: 100%;\n    }\n    img.max-width {\n      max-width: 100% !important;\n    }\n    .column.of-2 {\n      width: 50%;\n    }\n    .column.of-3 {\n      width: 33.333%;\n    }\n    .column.of-4 {\n      width: 25%;\n    }\n    ul ul ul ul  {\n      list-style-type: disc !important;\n    }\n    ol ol {\n      list-style-type: lower-roman !important;\n    }\n    ol ol ol {\n      list-style-type: lower-latin !important;\n    }\n    ol ol ol ol {\n      list-style-type: decimal !important;\n    }\n    @media screen and (max-width:480px) {\n      .preheader .rightColumnContent,\n      .footer .rightColumnContent {\n        text-align: left !important;\n      }\n      .preheader .rightColumnContent div,\n      .preheader .rightColumnContent span,\n      .footer .rightColumnContent div,\n      .footer .rightColumnContent span {\n        text-align: left !important;\n      }\n      .preheader .rightColumnContent,\n      .preheader .leftColumnContent {\n        font-size: 80% !important;\n        padding: 5px 0;\n      }\n      table.wrapper-mobile {\n        width: 100% !important;\n        table-layout: fixed;\n      }\n      img.max-width {\n        height: auto !important;\n        max-width: 100% !important;\n      }\n      a.bulletproof-button {\n        display: block !important;\n        width: auto !important;\n        font-size: 80%;\n        padding-left: 0 !important;\n        padding-right: 0 !important;\n      }\n      .columns {\n        width: 100% !important;\n      }\n      .column {\n        display: block !important;\n        width: 100% !important;\n        padding-left: 0 !important;\n        padding-right: 0 !important;\n        margin-left: 0 !important;\n        margin-right: 0 !important;\n      }\n      .social-icon-column {\n        display: inline-block !important;\n      }\n    }\n  </style>\n      <!--user entered Head Start--><!--End Head user entered-->\n    </head>\n    <body>\n      <center class=\"wrapper\" data-link-color=\"#1188E6\" data-body-style=\"font-size:14px; font-family:arial,helvetica,sans-serif; color:#000000; background-color:#FFFFFF;\">\n        <div class=\"webkit\">\n          <table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" class=\"wrapper\" bgcolor=\"#FFFFFF\">\n            <tr>\n              <td valign=\"top\" bgcolor=\"#FFFFFF\" width=\"100%\">\n                <table width=\"100%\" role=\"content-container\" class=\"outer\" align=\"center\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                  <tr>\n                    <td width=\"100%\">\n                      <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                        <tr>\n                          <td>\n                            <!--[if mso]>\n    <center>\n    <table><tr><td width=\"600\">\n  <![endif]-->\n                                    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:100%; max-width:600px;\" align=\"center\">\n                                      <tr>\n                                        <td role=\"modules-container\" style=\"padding:0px 0px 0px 0px; color:#000000; text-align:left;\" bgcolor=\"#FFFFFF\" width=\"100%\" align=\"left\"><table class=\"module preheader preheader-hide\" role=\"module\" data-type=\"preheader\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"display: none !important; mso-hide: all; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0;\">\n    <tr>\n      <td role=\"module-content\">\n        <p></p>\n      </td>\n    </tr>\n  </table><table class=\"module\" role=\"module\" data-type=\"text\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"table-layout: fixed;\" data-muid=\"41f90842-501c-4f08-96c9-17c0f74cb841\" data-mc-module-version=\"2019-10-22\">\n    <tbody>\n      <tr>\n        <td style=\"padding:18px 0px 18px 0px; line-height:22px; text-align:inherit;\" height=\"100%\" valign=\"top\" bgcolor=\"\" role=\"module-content\"><div><div style=\"font-family: inherit; text-align: inherit\">Ahoy, World!</div><div></div></div></td>\n      </tr>\n    </tbody>\n  </table><div data-role=\"module-unsubscribe\" class=\"module\" role=\"module\" data-type=\"unsubscribe\" style=\"color:#444444; font-size:12px; line-height:20px; padding:16px 16px 16px 16px; text-align:Center;\" data-muid=\"4e838cf3-9892-4a6d-94d6-170e474d21e5\"><div class=\"Unsubscribe--addressLine\"><p class=\"Unsubscribe--senderName\" style=\"font-size:12px; line-height:20px;\">{{Sender_Name}}</p><p style=\"font-size:12px; line-height:20px;\"><span class=\"Unsubscribe--senderAddress\">{{Sender_Address}}</span>, <span class=\"Unsubscribe--senderCity\">{{Sender_City}}</span>, <span class=\"Unsubscribe--senderState\">{{Sender_State}}</span> <span class=\"Unsubscribe--senderZip\">{{Sender_Zip}}</span></p></div><p style=\"font-size:12px; line-height:20px;\"><a class=\"Unsubscribe--unsubscribeLink\" href=\"{{{unsubscribe}}}\" target=\"_blank\" style=\"\">Unsubscribe</a> - <a href=\"{{{unsubscribe_preferences}}}\" target=\"_blank\" class=\"Unsubscribe--unsubscribePreferences\" style=\"\">Unsubscribe Preferences</a></p></div></td>\n                                      </tr>\n                                    </table>\n                                    <!--[if mso]>\n                                  </td>\n                                </tr>\n                              </table>\n                            </center>\n                            <![endif]-->\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n              </td>\n            </tr>\n          </table>\n        </div>\n      </center>\n    </body>\n  </html>",
+        "name": "Ahoy, World!",
+        "plain_content": "Ahoy, World!\n\n{{Sender_Name}}\n\n{{Sender_Address}} , {{Sender_City}} , {{Sender_State}} {{Sender_Zip}}\n\nUnsubscribe ( {{{unsubscribe}}} ) - Unsubscribe Preferences ( {{{unsubscribe_preferences}}} )",
+        "subject": "Getting Started"
+      }
+    ],
+    "properties": {
+      "editor": {
+        "description": "The editor used in the UI.",
+        "enum": [
+          "code",
+          "design"
+        ],
+        "type": "string"
+      },
+      "html_content": {
+        "description": "The HTML content of the Design.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "name": {
+        "default": "Duplicate: <original design name>",
+        "description": "The name of the new design.",
+        "type": "string"
+      },
+      "plain_content": {
+        "default": "<generated from html_content if left empty>",
+        "description": "Plain text content of the Design.",
+        "maxLength": 1048576,
+        "type": "string"
+      }
+    },
+    "required": [
+      "html_content"
+    ],
+    "title": "Design Input",
+    "type": "object"
+  },
+  "mc_designs.UpdateDesign": {
+    "examples": [
+      {
+        "categories": [
+          "promotions"
+        ],
+        "generate_plain_content": false,
+        "html_content": "<!DOCTYPE html PUBLIC \"-//W3C//DTD XHTML 1.0 Strict//EN\" \"http://www.w3.org/TR/xhtml1/DTD/xhtml1-strict.dtd\">\n<html data-editor-version=\"2\" class=\"sg-campaigns\" xmlns=\"http://www.w3.org/1999/xhtml\">\n    <head>\n      <meta http-equiv=\"Content-Type\" content=\"text/html; charset=utf-8\">\n      <meta name=\"viewport\" content=\"width=device-width, initial-scale=1, minimum-scale=1, maximum-scale=1\">\n      <!--[if !mso]><!-->\n      <meta http-equiv=\"X-UA-Compatible\" content=\"IE=Edge\">\n      <!--<![endif]-->\n      <!--[if (gte mso 9)|(IE)]>\n      <xml>\n        <o:OfficeDocumentSettings>\n          <o:AllowPNG/>\n          <o:PixelsPerInch>96</o:PixelsPerInch>\n        </o:OfficeDocumentSettings>\n      </xml>\n      <![endif]-->\n      <!--[if (gte mso 9)|(IE)]>\n  <style type=\"text/css\">\n    body {width: 600px;margin: 0 auto;}\n    table {border-collapse: collapse;}\n    table, td {mso-table-lspace: 0pt;mso-table-rspace: 0pt;}\n    img {-ms-interpolation-mode: bicubic;}\n  </style>\n<![endif]-->\n      <style type=\"text/css\">\n    body, p, div {\n      font-family: arial,helvetica,sans-serif;\n      font-size: 14px;\n    }\n    body {\n      color: #000000;\n    }\n    body a {\n      color: #1188E6;\n      text-decoration: none;\n    }\n    p { margin: 0; padding: 0; }\n    table.wrapper {\n      width:100% !important;\n      table-layout: fixed;\n      -webkit-font-smoothing: antialiased;\n      -webkit-text-size-adjust: 100%;\n      -moz-text-size-adjust: 100%;\n      -ms-text-size-adjust: 100%;\n    }\n    img.max-width {\n      max-width: 100% !important;\n    }\n    .column.of-2 {\n      width: 50%;\n    }\n    .column.of-3 {\n      width: 33.333%;\n    }\n    .column.of-4 {\n      width: 25%;\n    }\n    ul ul ul ul  {\n      list-style-type: disc !important;\n    }\n    ol ol {\n      list-style-type: lower-roman !important;\n    }\n    ol ol ol {\n      list-style-type: lower-latin !important;\n    }\n    ol ol ol ol {\n      list-style-type: decimal !important;\n    }\n    @media screen and (max-width:480px) {\n      .preheader .rightColumnContent,\n      .footer .rightColumnContent {\n        text-align: left !important;\n      }\n      .preheader .rightColumnContent div,\n      .preheader .rightColumnContent span,\n      .footer .rightColumnContent div,\n      .footer .rightColumnContent span {\n        text-align: left !important;\n      }\n      .preheader .rightColumnContent,\n      .preheader .leftColumnContent {\n        font-size: 80% !important;\n        padding: 5px 0;\n      }\n      table.wrapper-mobile {\n        width: 100% !important;\n        table-layout: fixed;\n      }\n      img.max-width {\n        height: auto !important;\n        max-width: 100% !important;\n      }\n      a.bulletproof-button {\n        display: block !important;\n        width: auto !important;\n        font-size: 80%;\n        padding-left: 0 !important;\n        padding-right: 0 !important;\n      }\n      .columns {\n        width: 100% !important;\n      }\n      .column {\n        display: block !important;\n        width: 100% !important;\n        padding-left: 0 !important;\n        padding-right: 0 !important;\n        margin-left: 0 !important;\n        margin-right: 0 !important;\n      }\n      .social-icon-column {\n        display: inline-block !important;\n      }\n    }\n  </style>\n      <!--user entered Head Start--><!--End Head user entered-->\n    </head>\n    <body>\n      <center class=\"wrapper\" data-link-color=\"#1188E6\" data-body-style=\"font-size:14px; font-family:arial,helvetica,sans-serif; color:#000000; background-color:#FFFFFF;\">\n        <div class=\"webkit\">\n          <table cellpadding=\"0\" cellspacing=\"0\" border=\"0\" width=\"100%\" class=\"wrapper\" bgcolor=\"#FFFFFF\">\n            <tr>\n              <td valign=\"top\" bgcolor=\"#FFFFFF\" width=\"100%\">\n                <table width=\"100%\" role=\"content-container\" class=\"outer\" align=\"center\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                  <tr>\n                    <td width=\"100%\">\n                      <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\">\n                        <tr>\n                          <td>\n                            <!--[if mso]>\n    <center>\n    <table><tr><td width=\"600\">\n  <![endif]-->\n                                    <table width=\"100%\" cellpadding=\"0\" cellspacing=\"0\" border=\"0\" style=\"width:100%; max-width:600px;\" align=\"center\">\n                                      <tr>\n                                        <td role=\"modules-container\" style=\"padding:0px 0px 0px 0px; color:#000000; text-align:left;\" bgcolor=\"#FFFFFF\" width=\"100%\" align=\"left\"><table class=\"module preheader preheader-hide\" role=\"module\" data-type=\"preheader\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"display: none !important; mso-hide: all; visibility: hidden; opacity: 0; color: transparent; height: 0; width: 0;\">\n    <tr>\n      <td role=\"module-content\">\n        <p></p>\n      </td>\n    </tr>\n  </table><table class=\"module\" role=\"module\" data-type=\"text\" border=\"0\" cellpadding=\"0\" cellspacing=\"0\" width=\"100%\" style=\"table-layout: fixed;\" data-muid=\"41f90842-501c-4f08-96c9-17c0f74cb841\" data-mc-module-version=\"2019-10-22\">\n    <tbody>\n      <tr>\n        <td style=\"padding:18px 0px 18px 0px; line-height:22px; text-align:inherit;\" height=\"100%\" valign=\"top\" bgcolor=\"\" role=\"module-content\"><div><div style=\"font-family: inherit; text-align: inherit\">Ahoy, World!</div><div></div></div></td>\n      </tr>\n    </tbody>\n  </table><div data-role=\"module-unsubscribe\" class=\"module\" role=\"module\" data-type=\"unsubscribe\" style=\"color:#444444; font-size:12px; line-height:20px; padding:16px 16px 16px 16px; text-align:Center;\" data-muid=\"4e838cf3-9892-4a6d-94d6-170e474d21e5\"><div class=\"Unsubscribe--addressLine\"><p class=\"Unsubscribe--senderName\" style=\"font-size:12px; line-height:20px;\">{{Sender_Name}}</p><p style=\"font-size:12px; line-height:20px;\"><span class=\"Unsubscribe--senderAddress\">{{Sender_Address}}</span>, <span class=\"Unsubscribe--senderCity\">{{Sender_City}}</span>, <span class=\"Unsubscribe--senderState\">{{Sender_State}}</span> <span class=\"Unsubscribe--senderZip\">{{Sender_Zip}}</span></p></div><p style=\"font-size:12px; line-height:20px;\"><a class=\"Unsubscribe--unsubscribeLink\" href=\"{{{unsubscribe}}}\" target=\"_blank\" style=\"\">Unsubscribe</a> - <a href=\"{{{unsubscribe_preferences}}}\" target=\"_blank\" class=\"Unsubscribe--unsubscribePreferences\" style=\"\">Unsubscribe Preferences</a></p></div></td>\n                                      </tr>\n                                    </table>\n                                    <!--[if mso]>\n                                  </td>\n                                </tr>\n                              </table>\n                            </center>\n                            <![endif]-->\n                          </td>\n                        </tr>\n                      </table>\n                    </td>\n                  </tr>\n                </table>\n              </td>\n            </tr>\n          </table>\n        </div>\n      </center>\n    </body>\n  </html>",
+        "name": "Ahoy, World!",
+        "subject": "Getting Started"
+      }
+    ],
+    "properties": {
+      "categories": {
+        "description": "The list of categories applied to the design",
+        "items": {
+          "maxLength": 255,
+          "type": "string"
+        },
+        "maxItems": 10,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "generate_plain_content": {
+        "default": true,
+        "description": "If true, plain_content is always generated from html_content. If false, plain_content is not altered.",
+        "type": "boolean"
+      },
+      "html_content": {
+        "description": "The HTML content of the Design.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "name": {
+        "default": "My Design",
+        "description": "Name of the Design.",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "plain_content": {
+        "default": "<generated from html_content if left empty>",
+        "description": "Plain text content of the Design.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "subject": {
+        "description": "Subject of the Design.",
+        "maxLength": 5000,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "mc_lists.CreateMarketingList": {
+    "examples": [
+      {
+        "name": "list-name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "Your name for your list",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "mc_lists.UpdateMarketingList": {
+    "examples": [
+      {
+        "name": "updated-list-name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "Your name for your list.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "mc_segments_2.0.SegmentRefreshRequest": {
+    "examples": [
+      {
+        "user_time_zone": "America/Chicago"
+      }
+    ],
+    "properties": {
+      "user_time_zone": {
+        "description": "The user's timezone. The timezone is used to reset the refresh count at midnight in the user's local time. Only [IANA time zone format](https://en.wikipedia.org/wiki/List_of_tz_database_time_zones) is accepted.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "user_time_zone"
+    ],
+    "title": "segment_refresh_request",
+    "type": "object"
+  },
+  "mc_segments_2.0.SegmentUpdate": {
+    "properties": {
+      "name": {
+        "description": "Name of the segment.",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "query_dsl": {
+        "description": "SQL query which will filter contacts based on the conditions provided",
+        "type": "string"
+      }
+    },
+    "title": "segment_update",
+    "type": "object"
+  },
+  "mc_segments_2.0.SegmentWriteV2": {
+    "properties": {
+      "name": {
+        "description": "Name of the segment.",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "parent_list_ids": {
+        "description": "The array of list ids to filter contacts on when building this segment. It allows only one such list id for now. We will support more in future",
+        "items": {
+          "type": "string"
+        },
+        "type": "array",
+        "uniqueItems": true
+      },
+      "query_dsl": {
+        "description": "SQL query which will filter contacts based on the conditions provided",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "query_dsl"
+    ],
+    "title": "segment_write",
+    "type": "object"
+  },
+  "mc_senders.CreateSender": {
+    "properties": {
+      "address": {
+        "description": "The physical address of the Sender.",
+        "type": "string"
+      },
+      "address_2": {
+        "description": "Additional Sender address information.",
+        "type": "string"
+      },
+      "city": {
+        "description": "The city of the Sender.",
+        "type": "string"
+      },
+      "country": {
+        "description": "The country of the Sender.",
+        "type": "string"
+      },
+      "from": {
+        "properties": {
+          "email": {
+            "description": "The email address from which your recipient will receive emails.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the from email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email",
+          "name"
+        ],
+        "type": "object"
+      },
+      "nickname": {
+        "description": "A nickname for the Sender. Not used for sending.",
+        "type": "string"
+      },
+      "reply_to": {
+        "properties": {
+          "email": {
+            "description": "The email address to which your recipient will reply.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the reply to email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "required": [
+          "email"
+        ],
+        "type": "object"
+      },
+      "state": {
+        "description": "The state of the Sender.",
+        "type": "string"
+      },
+      "zip": {
+        "description": "The zipcode of the Sender.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "address",
+      "city",
+      "country",
+      "from",
+      "nickname",
+      "reply_to"
+    ],
+    "type": "object"
+  },
+  "mc_senders.SenderRequest": {
+    "examples": [
+      {
+        "address": "1234 Fake St.",
+        "address_2": "",
+        "city": "San Francisco",
+        "country": "United States",
+        "from": {
+          "email": "orders@example.com",
+          "name": "Example Orders"
+        },
+        "nickname": "Example Orders",
+        "reply_to": {
+          "email": "support@example.com",
+          "name": "Example Support"
+        },
+        "state": "CA",
+        "zip": "94105"
+      }
+    ],
+    "properties": {
+      "address": {
+        "description": "The physical address of the Sender.",
+        "type": "string"
+      },
+      "address_2": {
+        "description": "Additional Sender address information.",
+        "type": "string"
+      },
+      "city": {
+        "description": "The city of the Sender.",
+        "type": "string"
+      },
+      "country": {
+        "description": "The country of the Sender.",
+        "type": "string"
+      },
+      "from": {
+        "properties": {
+          "email": {
+            "description": "The email address from which your recipient will receive emails.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the from email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "nickname": {
+        "description": "A nickname for the Sender. Not used for sending.",
+        "type": "string"
+      },
+      "reply_to": {
+        "properties": {
+          "email": {
+            "description": "The email address to which your recipient will reply.",
+            "type": "string"
+          },
+          "name": {
+            "description": "The name appended to the reply to email field. Typically your name or company name.",
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "state": {
+        "description": "The state of the Sender.",
+        "type": "string"
+      },
+      "zip": {
+        "description": "The zipcode of the Sender.",
+        "type": "string"
+      }
+    },
+    "title": "Sender Request",
+    "type": "object"
+  },
+  "mc_singlesends.DuplicateSingleSend": {
+    "properties": {
+      "name": {
+        "description": "The name of the duplicate Single Send. If you choose to leave the name field blank, your duplicate will be assigned the name of the Single Send it was copied from with the text 'Copy of ' prepended to it. The end of the new Single Send name, including 'Copy of ', will be trimmed if the name exceeds the character limit.",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "mc_singlesends.ScheduleSingleSend": {
+    "examples": [
+      {
+        "send_at": "3752-01-28T23:21:52.575Z"
+      }
+    ],
+    "properties": {
+      "send_at": {
+        "description": "The ISO 8601 time at which to send the Single Send. This must be in future or the string `now`. SendGrid [Mail Send](https://docs.sendgrid.com/api-reference/mail-send/mail-send) emails can be scheduled up to 72 hours in advance. However, this scheduling constraint does not apply to emails sent via [Marketing Campaigns](https://docs.sendgrid.com/ui/sending-email/how-to-send-email-with-marketing-campaigns/).",
+        "format": "date-time",
+        "type": "string"
+      }
+    },
+    "required": [
+      "send_at"
+    ],
+    "type": "object"
+  },
+  "mc_singlesends.SinglesendRequest": {
+    "properties": {
+      "categories": {
+        "description": "The categories to associate with this Single Send.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 10,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "email_config": {
+        "properties": {
+          "custom_unsubscribe_url": {
+            "description": "The URL allowing recipients to unsubscribe — you must provide this or the `suppression_group_id`.",
+            "format": "uri",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "design_id": {
+            "description": "A `design_id` can be used in place of `html_content`, `plain_content`, and/or `subject`. You can retrieve a design's ID from the [\"List Designs\" endpoint](https://docs.sendgrid.com/api-reference/designs-api/list-designs) or by pulling it from the design's detail page URL in the Marketing Campaigns App.",
+            "type": "string"
+          },
+          "editor": {
+            "default": "code",
+            "description": "The editor — `\"design\"` or `\"code\"` — used to modify the Single Send's design in the Marketing Campaigns App.",
+            "enum": [
+              "code",
+              "design"
+            ],
+            "type": "string"
+          },
+          "generate_plain_content": {
+            "default": true,
+            "description": "If set to `true`, `plain_content` is always generated from `html_content`. If set to false, `plain_content` is not altered.",
+            "type": "boolean"
+          },
+          "html_content": {
+            "description": "The HTML content of the Single Send. Do not include this field when using a `design_id`.",
+            "type": "string"
+          },
+          "ip_pool": {
+            "description": "The name of the IP Pool from which the Single Send emails are sent.",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "plain_content": {
+            "description": "The plain text content of the Single Send. Do not include this field when using a `design_id`.",
+            "type": "string"
+          },
+          "sender_id": {
+            "description": "The ID of the verified Sender. You can retrieve a verified Sender's ID from the [\"Get Verified Senders\" endpoint](https://www.twilio.com/docs/sendgrid/api-reference/sender-verification/get-all-verified-senders) or by pulling it from the Sender's detail page URL in the SendGrid App.",
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "subject": {
+            "description": "The subject line of the Single Send. Do not include this field when using a `design_id`.",
+            "type": "string"
+          },
+          "suppression_group_id": {
+            "description": "The ID of the Suppression Group to allow recipients to unsubscribe — you must provide this or the `custom_unsubscribe_url`.",
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "type": "object"
+      },
+      "name": {
+        "description": "The name of the Single Send.",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "send_at": {
+        "description": "Set this property to an ISO 8601 formatted date-time when you would like to send the Single Send. Please note that any `send_at` property value set with this endpoint will prepopulate the send date in the SendGrid user interface (UI). However, the Single Send will remain an unscheduled draft until it's updated with the [**Schedule Single Send**](https://docs.sendgrid.com/api-reference/single-sends/schedule-single-send) endpoint or SendGrid application UI. Additionally, the `now` keyword is a valid `send_at` value only when using the Schedule Single Send endpoint. Setting this property to `now` with this endpoint will cause an error.",
+        "format": "date-time",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "send_to": {
+        "properties": {
+          "all": {
+            "default": false,
+            "description": "Set to `true` to send to All Contacts. If set to `false`, at least one `list_ids` or `segment_ids` value must be provided before the Single Send is scheduled to be sent to recipients.",
+            "type": "boolean"
+          },
+          "list_ids": {
+            "description": "The recipient List IDs that will receive the Single Send.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 50,
+            "type": "array"
+          },
+          "segment_ids": {
+            "description": "The recipient Segment IDs that will receive the Single Send.",
+            "items": {
+              "format": "uuid",
+              "type": "string"
+            },
+            "maxItems": 10,
+            "type": "array"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "title": "singlesend_request",
+    "type": "object"
+  },
+  "mc_singlesends.SinglesendSearch": {
+    "properties": {
+      "categories": {
+        "description": "categories to associate with this Single Send, match any single send that has at least one of the categories",
+        "items": {
+          "type": "string"
+        },
+        "type": "array",
+        "uniqueItems": true
+      },
+      "name": {
+        "description": "leading and trailing wildcard search on name of the Single Send",
+        "maxLength": 100,
+        "minLength": 1,
+        "type": "string"
+      },
+      "status": {
+        "description": "current status of the Single Send",
+        "items": {
+          "enum": [
+            "draft",
+            "scheduled",
+            "triggered"
+          ],
+          "type": "string"
+        },
+        "type": "array",
+        "uniqueItems": true
+      }
+    },
+    "title": "singlesend_search",
+    "type": "object"
+  },
+  "mc_test.SendTestMarketingEmail": {
+    "examples": [
+      {
+        "custom_unsubscribe_url": "https://example.com/unsubscribe",
+        "emails": [
+          "janedoe@example.com",
+          "tiramisu@example.com",
+          "bundt@example.com"
+        ],
+        "sender_id": 6060664,
+        "suppression_group_id": 21865513,
+        "template_id": "f8f77db8-b9fa-4b3c-9ee8-de3d582016b8",
+        "version_id_override": "7734f757-8eb8-4d22-b7f0-779a72f32986"
+      }
+    ],
+    "properties": {
+      "custom_unsubscribe_url": {
+        "description": "A custom unsubscribe URL.",
+        "type": "string"
+      },
+      "emails": {
+        "description": "An array of email addresses you want to send the test message to.",
+        "items": {
+          "format": "email",
+          "type": "string"
+        },
+        "maxItems": 10,
+        "minItems": 1,
+        "type": "array",
+        "uniqueItems": true
+      },
+      "from_address": {
+        "description": "You can either specify this address or specify a verified sender ID.",
+        "format": "email",
+        "type": "string"
+      },
+      "sender_id": {
+        "description": "This ID must belong to a verified sender. Alternatively, you may supply a `from_address` email.",
+        "type": "integer"
+      },
+      "suppression_group_id": {
+        "type": "integer"
+      },
+      "template_id": {
+        "description": "The ID of the template that you would like to use. If you use a template that contains a subject and content (either text or HTML), then those values specified at the personalizations or message level will not be used.",
+        "format": "uuid",
+        "type": "string"
+      },
+      "version_id_override": {
+        "description": " You can override the active template with an alternative template version by passing the version ID in this field. If this field is blank, the active template version will be used.",
+        "format": "uuid",
+        "type": "string"
+      }
+    },
+    "required": [
+      "template_id",
+      "emails"
+    ],
+    "type": "object"
+  },
+  "recipients_data_erasure.RecipientsDataErasureEraseRecipientsRequest": {
+    "examples": [
+      {
+        "email_addresses": [
+          "user1@example.com",
+          "user2@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "email_addresses": {
+        "description": "List of unique recipient email addresses whose PII will be erased. You may include a maximum of 5,000 addresses or a maximum payload size of 256Kb, whichever comes first.",
+        "items": {
+          "type": "string"
+        },
+        "maxItems": 5000,
+        "minItems": 1,
+        "type": "array"
+      }
+    },
+    "required": [
+      "email_addresses"
+    ],
+    "title": "EmailAddress",
+    "type": "object"
+  },
+  "reverse_dns.SetUpReverseDns": {
+    "examples": [
+      {
+        "domain": "example.com",
+        "ip": "192.168.1.1",
+        "subdomain": "email"
+      }
+    ],
+    "properties": {
+      "domain": {
+        "description": "The root, or sending, domain that will be used to send message from the IP address.",
+        "type": "string"
+      },
+      "ip": {
+        "description": "The IP address for which you want to set up reverse DNS.",
+        "type": "string"
+      },
+      "subdomain": {
+        "description": "The subdomain that will be used to send emails from the IP address. This should be the same as the subdomain used to set up an authenticated domain.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "ip",
+      "domain"
+    ],
+    "type": "object"
+  },
+  "scheduled_sends.CreateScheduledSend": {
+    "examples": [
+      {
+        "batch_id": "YOUR_BATCH_ID",
+        "status": "pause"
+      }
+    ],
+    "properties": {
+      "batch_id": {
+        "description": "The batch ID is the identifier that your scheduled mail sends share.",
+        "pattern": "^[a-zA-Z0-9]",
+        "type": "string"
+      },
+      "status": {
+        "default": "pause",
+        "description": "The status of the send you would like to implement. This can be pause or cancel. To delete a pause or cancel status see DELETE /v3/user/scheduled_sends/{batch_id}",
+        "enum": [
+          "pause",
+          "cancel"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "batch_id",
+      "status"
+    ],
+    "title": "Cancel or pause a scheduled send request",
+    "type": "object"
+  },
+  "scheduled_sends.UpdateScheduledSend": {
+    "examples": [
+      {
+        "status": "pause"
+      }
+    ],
+    "properties": {
+      "status": {
+        "description": "The status you would like the scheduled send to have.",
+        "enum": [
+          "cancel",
+          "pause"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "status"
+    ],
+    "type": "object"
+  },
+  "sso.CreateSsoCertificate": {
+    "description": "",
+    "examples": [
+      {
+        "enabled": false,
+        "integration_id": "b0b98502-9408-4b24-9e3d-31ed7cb15312",
+        "public_certificate": "<your x509 certificate>"
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if the certificate is enabled.",
+        "type": "boolean"
+      },
+      "integration_id": {
+        "description": "An ID that matches a certificate to a specific IdP integration. This is the `id` returned by the \"Get All SSO Integrations\" endpoint.",
+        "type": "string"
+      },
+      "public_certificate": {
+        "description": "This public certificate allows SendGrid to verify that SAML requests it receives are signed by an IdP that it recognizes.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "public_certificate",
+      "integration_id"
+    ],
+    "type": "object"
+  },
+  "sso.PatchSsoTeammatesRequest": {
+    "properties": {
+      "first_name": {
+        "description": "Set this property to the Teammate's first name.",
+        "type": "string"
+      },
+      "has_restricted_subuser_access": {
+        "description": "Set this property to `true` to give the Teammate permissions to operate only on behalf of a Subuser. This property value must be `true` if the `subuser_access` property is not empty. The `subuser_access` property determines which Subusers the Teammate may act on behalf of. If this property is set to `true`, you cannot specify individual `scopes`, assign a `persona`, or set `is_admin` to `true`—a Teammate cannot specify scopes for the parent account and have restricted Subuser access.",
+        "type": "boolean"
+      },
+      "is_admin": {
+        "description": "Set this property to `true` if the Teammate has admin permissions. You should not include the `scopes` or `persona` properties when setting the `is_admin` property to `true`—an admin will be allocated all scopes. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of scopes.",
+        "type": "boolean"
+      },
+      "last_name": {
+        "description": "Set this property to the Teammate's last name.",
+        "type": "string"
+      },
+      "persona": {
+        "description": "A persona represents a group of permissions often required by a type of Teammate such as a developer or marketer. Assigning a persona allows you to allocate a group of pre-defined permissions rather than assigning each scope individually. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a full list of the scopes assigned to each persona.",
+        "enum": [
+          "accountant",
+          "developer",
+          "marketer",
+          "observer"
+        ],
+        "type": "string"
+      },
+      "scopes": {
+        "description": "Add or remove permissions from a Teammate using this `scopes` property. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of available scopes. You should not include this propety in the request when using the `persona` property or when setting the `is_admin` property to `true`—assigning a `persona` or setting `is_admin` to `true` will allocate a group of permissions to the Teammate.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "subuser_access": {
+        "description": "Specify which Subusers the Teammate may access and act on behalf of with this property. If this property is populated, you must set the `has_restricted_subuser_access` property to `true`.",
+        "items": {
+          "description": "An array of Subusers to which the Teammate should have access.",
+          "properties": {
+            "id": {
+              "description": "Set this property to the ID of a Subuser to which the Teammate should have access. You can retrieve Subuser IDs from the [Subusers API](https://docs.sendgrid.com/api-reference/subusers-api/).",
+              "type": "integer"
+            },
+            "permission_type": {
+              "description": "Grant the level of access the Teammate should have to the specified Subuser with this property. This property value may be either `admin` or `restricted`. When set to `restricted`, the Teammate has only the permissions assigned in the `scopes` property.",
+              "enum": [
+                "admin",
+                "restricted"
+              ],
+              "type": "string"
+            },
+            "scopes": {
+              "description": "Add or remove permissions that the Teammate can access on behalf of the Subuser. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of available scopes. You should not include this property in the request when the `permission_type` property is set to `admin`—administrators have full access to the specified Subuser.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "permission_type"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "first_name",
+      "last_name"
+    ],
+    "summary": "Single Sign-on Teammate Request Body for update, PATCH, Teammate operations.",
+    "title": "Single Sign-On Teammate Update Request Body",
+    "type": "object"
+  },
+  "sso.PostPatchIntegrationRequest": {
+    "properties": {
+      "completed_integration": {
+        "description": "Indicates if the integration is complete.",
+        "type": "boolean"
+      },
+      "enabled": {
+        "description": "Indicates if the integration is enabled.",
+        "type": "boolean"
+      },
+      "entity_id": {
+        "description": "An identifier provided by your IdP to identify Twilio SendGrid in the SAML interaction. This is called the \"SAML Issuer ID\" in the Twilio SendGrid UI.",
+        "type": "string"
+      },
+      "name": {
+        "description": "The name of your integration. This name can be anything that makes sense for your organization (eg. Twilio SendGrid)",
+        "type": "string"
+      },
+      "signin_url": {
+        "description": "The IdP's SAML POST endpoint. This endpoint should receive requests and initiate an SSO login flow. This is called the \"Embed Link\" in the Twilio SendGrid UI.",
+        "type": "string"
+      },
+      "signout_url": {
+        "description": "This URL is relevant only for an IdP-initiated authentication flow. If a user authenticates from their IdP, this URL will return them to their IdP when logging out.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "enabled",
+      "signin_url",
+      "signout_url",
+      "entity_id"
+    ],
+    "title": "Create Integration Request",
+    "type": "object"
+  },
+  "sso.PostSsoTeammatesRequest": {
+    "examples": [
+      {
+        "email": "jane_doe@example.com",
+        "first_name": "Jane",
+        "has_restricted_subuser_access": true,
+        "is_admin": false,
+        "last_name": "Doe",
+        "subuser_access": [
+          {
+            "id": 12345,
+            "permission_type": "restricted",
+            "scopes": [
+              "alerts.read",
+              "asm.groups.read",
+              "billing.read",
+              "ips.warmup.read",
+              "ips.pools.read",
+              "ips.pools.ips.read",
+              "ips.assigned.read",
+              "ips.read",
+              "mail_settings.read",
+              "mail_settings.bcc.read",
+              "mail_settings.address_whitelist.read",
+              "mail_settings.footer.read",
+              "mail_settings.forward_spam.read",
+              "mail_settings.plain_content.read",
+              "mail_settings.spam_check.read",
+              "mail_settings.bounce_purge.update",
+              "mail_settings.forward_bounce.read",
+              "partner_settings.read",
+              "partner_settings.new_relic.read",
+              "partner_settings.sendwithus.read",
+              "tracking_settings.read",
+              "tracking_settings.click.read",
+              "tracking_settings.subscription.read",
+              "tracking_settings.open.read",
+              "tracking_settings.google_analytics.read",
+              "user.webhooks.event.settings.read",
+              "user.webhooks.event.test.read",
+              "user.webhooks.parse.settings.read",
+              "stats.read",
+              "stats.global.read",
+              "categories.stats.read",
+              "categories.stats.sums.read",
+              "devices.stats.read",
+              "clients.stats.read",
+              "clients.phone.stats.read",
+              "clients.tablet.stats.read",
+              "clients.webmail.stats.read",
+              "clients.desktop.stats.read",
+              "geo.stats.read",
+              "mailbox_providers.stats.read",
+              "browsers.stats.read",
+              "subusers.stats.read",
+              "subusers.stats.sums.read",
+              "subusers.stats.monthly.read",
+              "user.webhooks.parse.stats.read",
+              "subusers.read",
+              "subusers.monitor.read",
+              "subusers.credits.read",
+              "subusers.credits.remaining.read",
+              "subusers.reputations.read",
+              "subusers.summary.read",
+              "templates.read",
+              "templates.versions.read",
+              "user.account.read",
+              "user.credits.read",
+              "user.email.read",
+              "user.profile.read",
+              "user.profile.update",
+              "user.timezone.read",
+              "user.username.read",
+              "user.settings.enforced_tls.read",
+              "api_keys.read",
+              "categories.read",
+              "mail_settings.template.read",
+              "mail.batch.read",
+              "user.scheduled_sends.read",
+              "access_settings.whitelist.read",
+              "access_settings.activity.read",
+              "suppression.read",
+              "messages.read",
+              "email_testing.read",
+              "sender_verification_eligible",
+              "sender_verification_legacy",
+              "2fa_exempt",
+              "2fa_required"
+            ]
+          }
+        ]
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "Set this property to the Teammate's email address. This email address will also function as the Teammate's username and must match the address assigned to the user in your IdP. This address cannot be changed after the Teammate is created.",
+        "format": "email",
+        "type": "string"
+      },
+      "first_name": {
+        "description": "Set this property to the Teammate's first name.",
+        "type": "string"
+      },
+      "has_restricted_subuser_access": {
+        "description": "Set this property to `true` to give the Teammate permissions to operate only on behalf of a Subuser. This property value must be `true` if the `subuser_access` property is not empty. The `subuser_access` property determines which Subusers the Teammate may act on behalf of. If this property is set to `true`, you cannot specify individual `scopes`, assign a `persona`, or set `is_admin` to `true`—a Teammate cannot specify scopes for the parent account and have restricted Subuser access.",
+        "type": "boolean"
+      },
+      "is_admin": {
+        "description": "Set this property to `true` if the Teammate has admin permissions. You should not include the `scopes` or `persona` properties when setting the `is_admin` property to `true`—an admin will be allocated all scopes. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of scopes.",
+        "type": "boolean"
+      },
+      "last_name": {
+        "description": "Set this property to the Teammate's last name.",
+        "type": "string"
+      },
+      "persona": {
+        "description": "A persona represents a group of permissions often required by a type of Teammate such as a developer or marketer. Assigning a persona allows you to allocate a group of pre-defined permissions rather than assigning each scope individually. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a full list of the scopes assigned to each persona.",
+        "enum": [
+          "accountant",
+          "developer",
+          "marketer",
+          "observer"
+        ],
+        "type": "string"
+      },
+      "scopes": {
+        "description": "Add or remove permissions from a Teammate using this `scopes` property. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of available scopes. You should not include this propety in the request when using the `persona` property or when setting the `is_admin` property to `true`—assigning a `persona` or setting `is_admin` to `true` will allocate a group of permissions to the Teammate.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "subuser_access": {
+        "description": "Specify which Subusers the Teammate may access and act on behalf of with this property. If this property is populated, you must set the `has_restricted_subuser_access` property to `true`.",
+        "items": {
+          "description": "An array of Subusers to which the Teammate should have access.",
+          "properties": {
+            "id": {
+              "description": "Set this property to the ID of a Subuser to which the Teammate should have access. You can retrieve Subuser IDs from the [Subusers API](https://docs.sendgrid.com/api-reference/subusers-api/).",
+              "type": "integer"
+            },
+            "permission_type": {
+              "description": "Grant the level of access the Teammate should have to the specified Subuser with this property. This property value may be either `admin` or `restricted`. When set to `restricted`, the Teammate has only the permissions assigned in the `scopes` property.",
+              "enum": [
+                "admin",
+                "restricted"
+              ],
+              "type": "string"
+            },
+            "scopes": {
+              "description": "Add or remove permissions that the Teammate can access on behalf of the Subuser. See [**Teammate Permissions**](https://docs.sendgrid.com/ui/account-and-settings/teammate-permissions) for a complete list of available scopes. You should not include this property in the request when the `permission_type` property is set to `admin`—administrators have full access to the specified Subuser.",
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            }
+          },
+          "required": [
+            "id",
+            "permission_type"
+          ],
+          "type": "object"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "email",
+      "first_name",
+      "last_name"
+    ],
+    "summary": "The request body accepted by the POST endpoint that creates a new webhook.",
+    "title": "Single Sign-On Teammate Create Request Body",
+    "type": "object"
+  },
+  "sso.UpdateSsoCertificate": {
+    "examples": [
+      {
+        "enabled": false,
+        "intergration_id": "b0b98502-9408-4b24-9e3d-31ed7cb15312",
+        "public_certificate": "<your x509 certificate>"
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates whether or not the certificate is enabled.",
+        "type": "boolean"
+      },
+      "integration_id": {
+        "description": "An ID that matches a certificate to a specific IdP integration.",
+        "type": "string"
+      },
+      "public_certificate": {
+        "description": "This public certificate allows SendGrid to verify that SAML requests it receives are signed by an IdP that it recognizes.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "subusers.CreateSubuser": {
+    "examples": [
+      {
+        "email": "John@example.com",
+        "include_region": true,
+        "ips": [
+          "1.1.1.1",
+          "2.2.2.2"
+        ],
+        "password": "johns_password",
+        "region": "global",
+        "username": "John@example.com"
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "The email address of the subuser.",
+        "format": "email",
+        "type": "string"
+      },
+      "include_region": {
+        "default": false,
+        "description": "A flag that determines if the Subuser's region should be returned in the response. (Regional email is in Public Beta and requires SendGrid Pro plan or above.)",
+        "type": "boolean"
+      },
+      "ips": {
+        "description": "The IP addresses that should be assigned to this subuser.",
+        "items": {
+          "format": "ipv4",
+          "type": "string"
+        },
+        "type": "array"
+      },
+      "password": {
+        "description": "The password this subuser will use when logging into SendGrid.",
+        "type": "string"
+      },
+      "region": {
+        "default": "global",
+        "description": "The region this Subuser should be assigned to. Can be `global` or `eu`. (Regional email is in Public Beta and requires SendGrid Pro plan or above.).",
+        "enum": [
+          "global",
+          "eu"
+        ],
+        "type": "string"
+      },
+      "username": {
+        "description": "The username for this subuser.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "username",
+      "email",
+      "password",
+      "ips"
+    ],
+    "type": "object"
+  },
+  "subusers.SubuserCreditsRequest": {
+    "properties": {
+      "reset_frequency": {
+        "description": "The frequency with which a Subuser's credits are reset if `type` is set to `recurring`. Do _not_ include `reset_frequency` if you choose a reset `type` value of `unlimited` or `nonrecurring`.",
+        "enum": [
+          "monthly",
+          "weekly",
+          "daily"
+        ],
+        "type": "string"
+      },
+      "total": {
+        "description": "Total number of credits to which the Subuser is to be reset. If `type` is `nonrecurring` then the Subuser's credits will be reset to `total` on a one-time basis. If `type` is `recurring` then the Subuser's credits will be reset to `total` every time a reset is scheduled in accordance with the `reset_frequency`. Do _not_ include `total` if you choose a reset `type` value of `unlimited`.",
+        "minimum": 1,
+        "type": "integer"
+      },
+      "type": {
+        "description": "Type determines how credits are reset for a Subuser. `unlimited` indicates that there is no limit to the Subuser's credits. `recurring` indicates that the credits for the Subuser are reset according to the frequency determined by `reset_frequency`. `nonrecurring` indicates that there is no recurring schedule to reset credits and resets must be done on an ad hoc basis.",
+        "enum": [
+          "unlimited",
+          "recurring",
+          "nonrecurring"
+        ],
+        "type": "string"
+      }
+    },
+    "required": [
+      "type"
+    ],
+    "title": "Subuser Credits reset request body",
+    "type": "object"
+  },
+  "subusers.UpdateSubuser": {
+    "examples": [
+      {
+        "disabled": false
+      }
+    ],
+    "properties": {
+      "disabled": {
+        "description": "Whether or not this subuser is disabled. `true` means disabled, `false` means enabled.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "subusers.UpdateSubuserIp": {
+    "description": "The IP addresses you would like to assign to the subuser.",
+    "examples": [
+      [
+        "127.0.0.1"
+      ]
+    ],
+    "items": {
+      "format": "ipv4",
+      "type": "string"
+    },
+    "type": "array"
+  },
+  "subusers.UpdateSubuserRemainingCredit": {
+    "examples": [
+      {
+        "allocation_update": 99
+      }
+    ],
+    "properties": {
+      "allocation_update": {
+        "description": "The number of credits to add to or subtract from the current remaining credits for the Subuser. Use a positive number to increase the remaining credits or a negative number to reduce the remaining credits.",
+        "type": "integer"
+      }
+    },
+    "required": [
+      "allocation_update"
+    ],
+    "type": "object"
+  },
+  "subusers.UpdateSubuserWebsiteAccess": {
+    "examples": [
+      {
+        "disabled": true
+      }
+    ],
+    "properties": {
+      "disabled": {
+        "description": "Whether or not to disable website access to the Subuser. `true` means disabled, `false` means enabled.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "suppressions.DeleteInvalidEmails": {
+    "examples": [
+      {
+        "delete_all": false,
+        "emails": [
+          "example1@example.com",
+          "example2@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "delete_all": {
+        "description": "Indicates if you want to remove all email address from the invalid emails list.",
+        "type": "boolean"
+      },
+      "emails": {
+        "description": "The list of specific email addresses that you want to remove.",
+        "items": {
+          "format": "email",
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "suppressions.DeleteSpamReports": {
+    "examples": [
+      {
+        "delete_all": false,
+        "emails": [
+          "example1@example.com",
+          "example2@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "delete_all": {
+        "description": "Indicates if you want to delete all email addresses on the spam report list.",
+        "type": "boolean"
+      },
+      "emails": {
+        "description": "A list of specific email addresses that you want to remove from the spam report list.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "suppressions.DeleteSuppressionBlocks": {
+    "examples": [
+      {
+        "delete_all": false,
+        "emails": [
+          "example1@example.com",
+          "example2@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "delete_all": {
+        "description": "Indicates if you want to delete all blocked email addresses.",
+        "type": "boolean"
+      },
+      "emails": {
+        "description": "The specific blocked email addresses that you want to delete.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "suppressions.DeleteSuppressionBounces": {
+    "examples": [
+      {
+        "delete_all": false
+      }
+    ],
+    "properties": {
+      "delete_all": {
+        "description": "This parameter allows you to delete **every** email in your bounce list. This should not be used with the emails parameter.",
+        "type": "boolean"
+      },
+      "emails": {
+        "description": "Delete multiple emails from your bounce list at the same time. This should not be used with the delete_all parameter.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "type": "object"
+  },
+  "suppressions.SuppressionGroupRequestBaseProps": {
+    "properties": {
+      "description": {
+        "description": "A brief description of your suppression group. Required when creating a group.",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "is_default": {
+        "description": "Indicates if you would like this to be your default suppression group.",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The name of your suppression group. Required when creating a group.",
+        "maxLength": 30,
+        "type": "string"
+      }
+    },
+    "title": "Suppression Group Request Base",
+    "type": "object"
+  },
+  "suppressions.SuppressionsRequest": {
+    "examples": [
+      {
+        "recipient_emails": [
+          "test1@example.com",
+          "test2@example.com"
+        ]
+      }
+    ],
+    "properties": {
+      "recipient_emails": {
+        "description": "The array of email addresses to add or find.",
+        "items": {
+          "format": "email",
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "recipient_emails"
+    ],
+    "title": "Suppressions Request Body",
+    "type": "object"
+  },
+  "suppressions.UpdateAsmGroup": {
+    "examples": [
+      {
+        "description": "Suggestions for items our users might like.",
+        "id": 103,
+        "name": "Item Suggestions"
+      }
+    ],
+    "properties": {
+      "description": {
+        "description": "A brief description of your suppression group. Required when creating a group.",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "is_default": {
+        "description": "Indicates if you would like this to be your default suppression group.",
+        "type": "boolean"
+      },
+      "name": {
+        "description": "The name of your suppression group. Required when creating a group.",
+        "maxLength": 30,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "teammates.InviteTeammate": {
+    "examples": [
+      {
+        "email": "teammate1@example.com",
+        "is_admin": false,
+        "scopes": [
+          "user.profile.read",
+          "user.profile.update"
+        ]
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "New teammate's email",
+        "maxLength": 255,
+        "minLength": 5,
+        "pattern": "^.*@.*\\..*",
+        "type": "string"
+      },
+      "is_admin": {
+        "default": false,
+        "description": "Set to true if teammate should be an admin user",
+        "type": "boolean"
+      },
+      "scopes": {
+        "description": "Set to specify list of scopes that teammate should have. Should be empty if teammate is an admin.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "email",
+      "scopes",
+      "is_admin"
+    ],
+    "type": "object"
+  },
+  "teammates.UpdateTeammate": {
+    "examples": [
+      {
+        "is_admin": false,
+        "scopes": [
+          "user.profile.read",
+          "user.profile.edit"
+        ]
+      }
+    ],
+    "properties": {
+      "is_admin": {
+        "description": "Set to True if this teammate should be promoted to an admin user. If True, scopes should be an empty array.",
+        "type": "boolean"
+      },
+      "scopes": {
+        "description": "Provide list of scopes that should be given to teammate. If specifying list of scopes, is_admin should be set to False.",
+        "items": {
+          "type": "string"
+        },
+        "type": "array"
+      }
+    },
+    "required": [
+      "scopes",
+      "is_admin"
+    ],
+    "type": "object"
+  },
+  "templates.CreateTemplate": {
+    "examples": [
+      {
+        "generation": "dynamic",
+        "name": "example_name"
+      }
+    ],
+    "properties": {
+      "generation": {
+        "default": "legacy",
+        "description": "Defines whether the template supports dynamic replacement.",
+        "enum": [
+          "legacy",
+          "dynamic"
+        ],
+        "type": "string"
+      },
+      "name": {
+        "description": "The name for the new transactional template.",
+        "maxLength": 100,
+        "type": "string"
+      }
+    },
+    "required": [
+      "name"
+    ],
+    "type": "object"
+  },
+  "templates.DuplicateTemplate": {
+    "examples": [
+      {
+        "name": "example_name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The name for the new transactional template.",
+        "maxLength": 100,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "templates.TransactionalTemplateVersionCreate": {
+    "examples": [
+      {
+        "active": 1,
+        "editor": "design",
+        "generate_plain_content": false,
+        "html_content": "dolor",
+        "name": "pariatur non incididunt commodo",
+        "plain_content": "labore dolore",
+        "subject": "aliquip nulla Ut",
+        "template_id": "Excepteur Ut qui"
+      }
+    ],
+    "properties": {
+      "active": {
+        "description": "Set the version as the active version associated with the template (0 is inactive, 1 is active). Only one version of a template can be active. The first version created for a template will automatically be set to Active.",
+        "enum": [
+          0,
+          1
+        ],
+        "type": "integer"
+      },
+      "editor": {
+        "description": "The editor used in the UI.",
+        "enum": [
+          "code",
+          "design"
+        ],
+        "type": "string"
+      },
+      "generate_plain_content": {
+        "default": true,
+        "description": "If true, plain_content is always generated from html_content. If false, plain_content is not altered.",
+        "type": "boolean"
+      },
+      "html_content": {
+        "description": "The HTML content of the version. Maximum of 1048576 bytes allowed.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "name": {
+        "description": "Name of the transactional template version.",
+        "maxLength": 100,
+        "type": "string"
+      },
+      "plain_content": {
+        "default": "<generated from html_content if left empty>",
+        "description": "Text/plain content of the transactional template version. Maximum of 1048576 bytes allowed.",
+        "maxLength": 1048576,
+        "type": "string"
+      },
+      "subject": {
+        "description": "Subject of the new transactional template version.",
+        "maxLength": 255,
+        "type": "string"
+      },
+      "test_data": {
+        "description": "For dynamic templates only, the mock json data that will be used for template preview and test sends.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "name",
+      "subject"
+    ],
+    "title": "Transactional Templates: Version Create",
+    "type": "object"
+  },
+  "templates.UpdateTemplate": {
+    "examples": [
+      {
+        "name": "new_example_name"
+      }
+    ],
+    "properties": {
+      "name": {
+        "description": "The name of the transactional template.",
+        "maxLength": 100,
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "tracking_settings.GoogleAnalyticsSettings": {
+    "examples": [
+      {
+        "enabled": true,
+        "utm_campaign": "website",
+        "utm_content": "",
+        "utm_medium": "email",
+        "utm_source": "sendgrid.com",
+        "utm_term": ""
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "Indicates if Google Analytics is enabled.",
+        "type": "boolean"
+      },
+      "utm_campaign": {
+        "description": "The name of the campaign.",
+        "type": "string"
+      },
+      "utm_content": {
+        "description": "Used to differentiate ads",
+        "type": "string"
+      },
+      "utm_medium": {
+        "description": "Name of the marketing medium (e.g. \"Email\").",
+        "type": "string"
+      },
+      "utm_source": {
+        "description": "Name of the referrer source. ",
+        "type": "string"
+      },
+      "utm_term": {
+        "description": "Any paid keywords.",
+        "type": "string"
+      }
+    },
+    "title": "Settings: Google Analytics",
+    "type": "object"
+  },
+  "tracking_settings.SubscriptionTrackingSettings": {
+    "properties": {
+      "enabled": {
+        "description": "Indicates if subscription tracking is enabled.",
+        "type": "boolean"
+      },
+      "html_content": {
+        "description": "The information and HTML for your unsubscribe link. ",
+        "type": "string"
+      },
+      "landing": {
+        "description": "The HTML that will be displayed on the page that your customers will see after clicking unsubscribe, hosted on SendGrid’s server.",
+        "type": "string"
+      },
+      "plain_content": {
+        "description": "The information in plain text for your unsubscribe link. You should have the “<% %>” tag in your content, otherwise the user will have no URL for unsubscribing.",
+        "type": "string"
+      },
+      "replace": {
+        "description": "Your custom defined replacement tag for your templates. Use this tag to place your unsubscribe content anywhere in your emailtemplate.",
+        "type": "string"
+      },
+      "url": {
+        "description": "The URL where you would like your users sent to unsubscribe.",
+        "format": "uri",
+        "type": "string"
+      }
+    },
+    "title": "Settings: Subscription Tracking",
+    "type": "object"
+  },
+  "tracking_settings.UpdateClickTrackingSetting": {
+    "examples": [
+      {
+        "enabled": true
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "The setting you want to use for click tracking.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "tracking_settings.UpdateOpenTrackingSetting": {
+    "examples": [
+      {
+        "enabled": true
+      }
+    ],
+    "properties": {
+      "enabled": {
+        "description": "The new status that you want to set for open tracking.",
+        "type": "boolean"
+      }
+    },
+    "type": "object"
+  },
+  "user.UpdateEmail": {
+    "examples": [
+      {
+        "email": "example@example.com"
+      }
+    ],
+    "properties": {
+      "email": {
+        "description": "The new email address that you would like to use for your account.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "user.UpdatePassword": {
+    "examples": [
+      {
+        "new_password": "new_password",
+        "old_password": "old_password"
+      }
+    ],
+    "properties": {
+      "new_password": {
+        "description": "The new password you would like to use for your account.",
+        "type": "string"
+      },
+      "old_password": {
+        "description": "The old password for your account.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "new_password",
+      "old_password"
+    ],
+    "type": "object"
+  },
+  "user.UpdateUsername": {
+    "examples": [
+      {
+        "username": "test_username"
+      }
+    ],
+    "properties": {
+      "username": {
+        "description": "The new username you would like to use for your account.",
+        "type": "string"
+      }
+    },
+    "type": "object"
+  },
+  "user.UserProfile": {
+    "examples": [
+      {
+        "address": "1451 Larimer Street, 3rd floor",
+        "address2": "",
+        "city": "Denver, CO",
+        "company": "SendGrid",
+        "country": "US",
+        "first_name": "Matthew",
+        "last_name": "Bernier",
+        "phone": "7208788003",
+        "state": "CO",
+        "website": "http://sendgrid.com",
+        "zip": "80202"
+      }
+    ],
+    "properties": {
+      "address": {
+        "description": "The street address for this user profile.",
+        "type": "string"
+      },
+      "address2": {
+        "description": "An optional second line for the street address of this user profile.",
+        "type": "string"
+      },
+      "city": {
+        "description": "The city for the user profile.",
+        "type": "string"
+      },
+      "company": {
+        "description": "That company that this user profile is associated with.",
+        "type": "string"
+      },
+      "country": {
+        "description": "Th country of this user profile.",
+        "type": "string"
+      },
+      "first_name": {
+        "description": "The first name of the user.",
+        "type": "string"
+      },
+      "last_name": {
+        "description": "The last name of the user.",
+        "type": "string"
+      },
+      "phone": {
+        "description": "The phone number for the user.",
+        "type": "string"
+      },
+      "state": {
+        "description": "The state for this user.",
+        "type": "string"
+      },
+      "website": {
+        "description": "The website associated with this user.",
+        "type": "string"
+      },
+      "zip": {
+        "description": "The zip code for this user.",
+        "type": "string"
+      }
+    },
+    "title": "User: Profile",
+    "type": "object"
+  },
+  "verified_senders.VerifiedSenderRequest": {
+    "examples": [
+      {
+        "address": "1234 Fake St",
+        "address2": "PO Box 1234",
+        "city": "San Francisco",
+        "country": "USA",
+        "from_email": "orders@example.com",
+        "from_name": "Example Orders",
+        "nickname": "Orders",
+        "reply_to": "orders@example.com",
+        "reply_to_name": "Example Orders",
+        "state": "CA",
+        "zip": "94105"
+      }
+    ],
+    "properties": {
+      "address": {
+        "maxLength": 100,
+        "type": "string"
+      },
+      "address2": {
+        "maxLength": 100,
+        "type": "string"
+      },
+      "city": {
+        "maxLength": 150,
+        "type": "string"
+      },
+      "country": {
+        "maxLength": 100,
+        "type": "string"
+      },
+      "from_email": {
+        "format": "email",
+        "maxLength": 256,
+        "type": "string"
+      },
+      "from_name": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "nickname": {
+        "maxLength": 100,
+        "type": "string"
+      },
+      "reply_to": {
+        "format": "email",
+        "maxLength": 256,
+        "type": "string"
+      },
+      "reply_to_name": {
+        "maxLength": 256,
+        "type": "string"
+      },
+      "state": {
+        "maxLength": 2,
+        "type": "string"
+      },
+      "zip": {
+        "maxLength": 10,
+        "type": "string"
+      }
+    },
+    "required": [
+      "nickname",
+      "from_email",
+      "reply_to"
+    ],
+    "title": "Verified Sender Request Schema",
+    "type": "object"
+  },
+  "webhooks.CreateSecurityPolicy": {
+    "properties": {
+      "name": {
+        "description": "User-defined policy name",
+        "type": "string"
+      },
+      "oauth": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token_url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "signature": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  },
+  "webhooks.EventWebhookRequest": {
+    "properties": {
+      "bounce": {
+        "description": "Set this property to `true` to receive bounce events. A bounce occurs when a receiving server could not or would not accept a message.",
+        "type": "boolean"
+      },
+      "click": {
+        "description": "Set this property to `true` to receive click events. Click events occur when a recipient clicks on a link within the message. You must [enable Click Tracking](https://docs.sendgrid.com/ui/account-and-settings/tracking#click-tracking) to receive this type of event.",
+        "type": "boolean"
+      },
+      "deferred": {
+        "description": "Set this property to `true` to receive deferred events. Deferred events occur when a recipient's email server temporarily rejects a message.",
+        "type": "boolean"
+      },
+      "delivered": {
+        "description": "Set this property to `true` to receive delivered events. Delivered events occur when a message has been successfully delivered to the receiving server.",
+        "type": "boolean"
+      },
+      "dropped": {
+        "description": "Set this property to `true` to receive dropped events. Dropped events occur when your message is not delivered by Twilio SendGrid. Dropped events are accomponied by a `reason` property, which indicates why the message was dropped. Reasons for a dropped message include: Invalid SMTPAPI header, Spam Content (if spam checker app enabled), Unsubscribed Address, Bounced Address, Spam Reporting Address, Invalid, Recipient List over Package Quota.",
+        "type": "boolean"
+      },
+      "enabled": {
+        "description": "Set this property to `true` to enable the Event Webhook or `false` to disable it.",
+        "type": "boolean"
+      },
+      "friendly_name": {
+        "description": "Optionally set this property to a friendly name for the Event Webhook. A friendly name may be assigned to each of your webhooks to help you differentiate them. The friendly name is for convenience only. You should use the webhook `id` property for any programmatic tasks.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "group_resubscribe": {
+        "description": "Set this property to `true` to receive group resubscribe events. Group resubscribes occur when recipients resubscribe to a specific [unsubscribe group](https://docs.sendgrid.com/ui/sending-email/create-and-manage-unsubscribe-groups) by updating their subscription preferences. You must [enable Subscription Tracking](https://docs.sendgrid.com/ui/account-and-settings/tracking#subscription-tracking) to receive this type of event.",
+        "type": "boolean"
+      },
+      "group_unsubscribe": {
+        "description": "Set this property to `true` to receive group unsubscribe events. Group unsubscribes occur when recipients unsubscribe from a specific [unsubscribe group](https://docs.sendgrid.com/ui/sending-email/create-and-manage-unsubscribe-groups) either by direct link or by updating their subscription preferences. You must [enable Subscription Tracking](https://docs.sendgrid.com/ui/account-and-settings/tracking#subscription-tracking) to receive this type of event.",
+        "type": "boolean"
+      },
+      "oauth_client_id": {
+        "description": "Set this property to the OAuth client ID that SendGrid will pass to your OAuth server or service provider to generate an OAuth access token. When passing data in this property, you must also include the `oauth_token_url` property.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oauth_client_secret": {
+        "description": "Set this property to the OAuth client secret that SendGrid will pass to your OAuth server or service provider to generate an OAuth access token. This secret is needed only once to create an access token. SendGrid will store the secret, allowing you to update your client ID and Token URL without passing the secret to SendGrid again. When passing data in this field, you must also include the `oauth_client_id` and `oauth_token_url` properties.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oauth_token_url": {
+        "description": "Set this property to the URL where SendGrid will send the OAuth client ID and client secret to generate an OAuth access token. This should be your OAuth server or service provider. When passing data in this field, you must also include the `oauth_client_id` property.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "open": {
+        "description": "Set this property to `true` to receive open events. Open events occur when a recipient has opened the HTML message. You must [enable Open Tracking](https://docs.sendgrid.com/ui/account-and-settings/tracking#open-tracking) to receive this type of event.",
+        "type": "boolean"
+      },
+      "processed": {
+        "description": "Set this property to `true` to receive processed events. Processed events occur when a message has been received by Twilio SendGrid and the message is ready to be delivered.",
+        "type": "boolean"
+      },
+      "spam_report": {
+        "description": "Set this property to `true` to receive spam report events. Spam reports occur when recipients mark a message as spam.",
+        "type": "boolean"
+      },
+      "unsubscribe": {
+        "description": "Set this property to `true` to receive unsubscribe events. Unsubscribes occur when recipients click on a message's subscription management link. You must [enable Subscription Tracking](https://docs.sendgrid.com/ui/account-and-settings/tracking#subscription-tracking) to receive this type of event.",
+        "type": "boolean"
+      },
+      "url": {
+        "description": "Set this property to the URL where you want the Event Webhook to send event data.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "title": "Create and Update Event Webhook Request Body",
+    "type": "object"
+  },
+  "webhooks.EventWebhookTestRequest": {
+    "examples": [
+      {
+        "id": "77d4a5da-7015-11ed-a1eb-0242ac120002",
+        "oauth_client_id": "a835e7210bbb47edbfa71bdfc909b2d7",
+        "oauth_client_secret": "335a9b0c65324fd2a62e2953d4b158",
+        "oauth_token_url": "https://oauthservice.example.com",
+        "url": "https://emailengagment.example.com"
+      }
+    ],
+    "properties": {
+      "id": {
+        "description": "The ID of the Event Webhook you want to retrieve.",
+        "type": "string"
+      },
+      "oauth_client_id": {
+        "description": "The client ID Twilio SendGrid sends to your OAuth server or service provider to generate an OAuth access token. When passing data in this property, you must also include the `oauth_token_url` property.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oauth_client_secret": {
+        "description": "The `oauth_client_secret` is needed only once to create an access token. SendGrid will store this secret, allowing you to update your Client ID and Token URL without passing the secret to SendGrid again. When passing data in this field, you must also include the `oauth_client_id` and `oauth_token_url` properties.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "oauth_token_url": {
+        "description": "The URL where Twilio SendGrid sends the Client ID and Client Secret to generate an access token. This should be your OAuth server or service provider. When passing data in this field, you must also include the `oauth_client_id` property.",
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "url": {
+        "description": "The URL where you would like the test notification to be sent.",
+        "type": "string"
+      }
+    },
+    "required": [
+      "url"
+    ],
+    "title": "Send Event Webhook Test Request",
+    "type": "object"
+  },
+  "webhooks.ParseSetting": {
+    "examples": [
+      {
+        "hostname": "myhostname.com",
+        "send_raw": true,
+        "spam_check": false,
+        "url": "http://email.myhostname.com"
+      }
+    ],
+    "properties": {
+      "hostname": {
+        "description": "A specific and unique domain or subdomain that you have created to use exclusively to parse your incoming email. For example, `parse.yourdomain.com`.",
+        "type": "string"
+      },
+      "send_raw": {
+        "description": "Indicates if you would like SendGrid to post the original MIME-type content of your parsed email. When this parameter is set to `true`, SendGrid will send a JSON payload of the content of your email.",
+        "type": "boolean"
+      },
+      "spam_check": {
+        "description": "Indicates if you would like SendGrid to check the content parsed from your emails for spam before POSTing them to your domain.",
+        "type": "boolean"
+      },
+      "url": {
+        "description": "The public URL where you would like SendGrid to POST the data parsed from your email. Any emails sent with the given hostname provided (whose MX records have been updated to point to SendGrid) will be parsed and POSTed to this URL.",
+        "type": "string"
+      }
+    },
+    "title": "Parse Setting",
+    "type": "object"
+  },
+  "webhooks.UpdateSecurityPolicy": {
+    "properties": {
+      "name": {
+        "description": "User-defined policy name",
+        "type": "string"
+      },
+      "oauth": {
+        "properties": {
+          "client_id": {
+            "type": "string"
+          },
+          "client_secret": {
+            "type": "string"
+          },
+          "scopes": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
+          "token_url": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "signature": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          }
+        },
+        "type": "object"
+      }
+    },
+    "type": "object"
+  },
+  "webhooks.UpdateSignedEventWebhook": {
+    "properties": {
+      "enabled": {
+        "description": "Enable or disable the webhook by setting this property to `true` or `false`, respectively.",
+        "type": "boolean"
+      }
+    },
+    "required": [
+      "enabled"
+    ],
+    "type": "object"
+  }
+}

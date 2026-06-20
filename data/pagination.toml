@@ -1,0 +1,70 @@
+# Pagination overrides — the cases that can't be derived correctly from query
+# params alone. Sources: .research-notes/r5-pagination-output-errors.md §1.2 +
+# review-domain.md (C8) + review-completeness.md (G4/G5). Kinds map to the frozen
+# `PaginationKind` enum (snake_case).
+#
+# Default derivation (in code, r5 §1.2 ordered precedence, first match wins):
+#   page_token            -> page_token   (inject page_token)
+#   after_key             -> cursor_key   (inject after_key)
+#   after_*_id            -> cursor_record(inject that param)
+#   page + page_size      -> page_number  (inject page)
+#   offset                -> offset       (inject offset)
+#   limit only            -> capped_single
+#   none of the above     -> none
+
+# --- cursor_path override: 4 ip_address_management cursor ops nest the cursor at
+#     `_metadata.next_params.after_key`, NOT the top-level `_metadata.after_key`
+#     the engine would otherwise read (review-domain C8 — silent --all truncation). ---
+[[overrides]]
+op = "ip_address_management.ListIp"
+kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
+inject_param = "after_key"
+
+[[overrides]]
+op = "ip_address_management.ListSubUserAssignedToIp"
+kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
+inject_param = "after_key"
+
+[[overrides]]
+op = "ip_address_management.ListIpPool"
+kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
+inject_param = "after_key"
+
+[[overrides]]
+op = "ip_address_management.ListIpAssignedToIpPool"
+kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
+inject_param = "after_key"
+
+# --- seq: both engagement-quality lists are cursor_key via the `after_key` query
+#     param (SeqAfterKey). Their responses are schema-less, so offline derivation
+#     can't see a cursor; ListEngagementQualityScore (from/to only) would otherwise
+#     classify `none` (review-completeness G5). Both GETs return 202. ---
+[[overrides]]
+op = "seq.ListEngagementQualityScore"
+kind = "cursor_key"
+inject_param = "after_key"
+
+[[overrides]]
+op = "seq.ListSubuserEngagementQualityScore"
+kind = "cursor_key"
+inject_param = "after_key"
+
+# --- comma-join: 3 array `ids` query params declare NO style/explode, so the
+#     OpenAPI default (explode=true → repeated keys) is wrong — the API wants
+#     comma-delimited (integrations.DeleteIntegration's `ids` desc says so).
+#     Force explode=false on these params (review-completeness G4). ---
+[[comma_join]]
+op = "integrations.DeleteIntegration"
+param = "ids"
+
+[[comma_join]]
+op = "mc_segments.ListSegment"
+param = "ids"
+
+[[comma_join]]
+op = "mc_segments_2.0.ListSegment"
+param = "ids"

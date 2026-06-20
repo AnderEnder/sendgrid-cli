@@ -1,0 +1,10 @@
+# SendGrid OpenAPI spec pin.
+#
+# `info.version` is "1.0.0" in all 46 specs (useless for pinning), so we pin the
+# upstream git SHA. The drift CI (P5) fetches HEAD, canonicalizes (sorted keys),
+# content-hashes vs this pin, and opens a PR with an operation-set changelog on
+# any *semantic* change.
+source = "https://github.com/twilio/sendgrid-oai"
+path = "spec/json"
+rev = "fb95a935c87b79f7f982ac34bd37adab1f697dbc"
+spec_count = 46

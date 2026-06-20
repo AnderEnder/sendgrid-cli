@@ -1,0 +1,231 @@
+# CLI taxonomy — the curated map from spec namespace (filename minus `tsg_`/`_v3`)
+# to its `(domain, subgroup, hidden)` slot. Source of truth: .research-notes/r2-taxonomy.md
+# (the 46-row table + deliberate overrides). `(domain, subgroup)` is 1:1 with the
+# file, which is what dissolves all 26 cross-file operationId collisions.
+#
+# Collapse rule (applied in codegen, NOT here): when `subgroup == domain`, the
+# subgroup level is dropped from both `cli_path` and `id`.
+#
+# `hidden` resolves the two product calls r2 flagged `hide?`:
+#   - mc_segments (segments-v1): hidden = true  (superseded by Segments 2.0)
+#   - ips (legacy):              hidden = false (user decision: stays visible)
+# The lmc_* "Legacy"-titled trio is hidden by default.
+
+[namespaces.mail]
+domain = "mail"
+subgroup = "send"
+
+[namespaces.mc_test]
+domain = "mail"
+subgroup = "test"
+
+[namespaces.scheduled_sends]
+domain = "mail"
+subgroup = "scheduled"
+
+[namespaces.mc_contacts]
+domain = "marketing"
+subgroup = "contacts"
+
+[namespaces.mc_lists]
+domain = "marketing"
+subgroup = "lists"
+
+# Override: canonical Segments 2.0 gets the clean `segments` name.
+[namespaces."mc_segments_2.0"]
+domain = "marketing"
+subgroup = "segments"
+
+# Override: superseded v1 gets the suffixed name and is hidden by default.
+[namespaces.mc_segments]
+domain = "marketing"
+subgroup = "segments-v1"
+hidden = true
+
+[namespaces.mc_custom_fields]
+domain = "marketing"
+subgroup = "fields"
+
+[namespaces.mc_senders]
+domain = "marketing"
+subgroup = "senders"
+
+[namespaces.mc_singlesends]
+domain = "marketing"
+subgroup = "singlesends"
+
+[namespaces.mc_designs]
+domain = "marketing"
+subgroup = "designs"
+
+[namespaces.mc_stats]
+domain = "marketing"
+subgroup = "stats"
+
+[namespaces.integrations]
+domain = "marketing"
+subgroup = "integrations"
+
+[namespaces.lmc_campaigns]
+domain = "legacy"
+subgroup = "campaigns"
+hidden = true
+
+[namespaces.lmc_contactdb]
+domain = "legacy"
+subgroup = "contactdb"
+hidden = true
+
+[namespaces.lmc_senders]
+domain = "legacy"
+subgroup = "senders"
+hidden = true
+
+# subgroup == domain → collapsed to `sendgrid templates <verb>-<noun>`.
+[namespaces.templates]
+domain = "templates"
+subgroup = "templates"
+
+# Override: IP Address Management is canonical (combines old IP Address + IP Pools).
+[namespaces.ip_address_management]
+domain = "ips"
+subgroup = "manage"
+
+# Override: older /v3/ips is legacy but stays visible (user decision).
+[namespaces.ips]
+domain = "ips"
+subgroup = "legacy"
+hidden = false
+
+[namespaces.ip_access_management]
+domain = "ips"
+subgroup = "access"
+
+[namespaces.ip_provisioning]
+domain = "ips"
+subgroup = "provisioning"
+
+[namespaces.ip_warmup]
+domain = "ips"
+subgroup = "warmup"
+
+[namespaces.reverse_dns]
+domain = "ips"
+subgroup = "reverse-dns"
+
+[namespaces.domain_authentication]
+domain = "branding"
+subgroup = "domain"
+
+[namespaces.link_branding]
+domain = "branding"
+subgroup = "link"
+
+[namespaces.verified_senders]
+domain = "senders"
+subgroup = "verified"
+
+# subgroup == domain → collapsed.
+[namespaces.suppressions]
+domain = "suppressions"
+subgroup = "suppressions"
+
+[namespaces.mail_settings]
+domain = "settings"
+subgroup = "mail"
+
+[namespaces.tracking_settings]
+domain = "settings"
+subgroup = "tracking"
+
+[namespaces.enforced_tls]
+domain = "settings"
+subgroup = "enforced-tls"
+
+[namespaces.partner]
+domain = "settings"
+subgroup = "partner"
+
+[namespaces.alerts]
+domain = "settings"
+subgroup = "alerts"
+
+[namespaces.user]
+domain = "account"
+subgroup = "user"
+
+[namespaces.account_provisioning]
+domain = "account"
+subgroup = "provisioning"
+
+[namespaces.subusers]
+domain = "account"
+subgroup = "subusers"
+
+[namespaces.teammates]
+domain = "account"
+subgroup = "teammates"
+
+[namespaces.sso]
+domain = "account"
+subgroup = "sso"
+
+[namespaces.api_keys]
+domain = "security"
+subgroup = "api-keys"
+
+[namespaces.scopes]
+domain = "security"
+subgroup = "scopes"
+
+[namespaces.stats]
+domain = "stats"
+subgroup = "global"
+
+[namespaces.email_activity]
+domain = "stats"
+subgroup = "activity"
+
+[namespaces.logs]
+domain = "stats"
+subgroup = "logs"
+
+[namespaces.seq]
+domain = "stats"
+subgroup = "engagement-quality"
+
+[namespaces.email_validation]
+domain = "validation"
+subgroup = "email"
+
+# subgroup == domain → collapsed.
+[namespaces.webhooks]
+domain = "webhooks"
+subgroup = "webhooks"
+
+[namespaces.recipients_data_erasure]
+domain = "compliance"
+subgroup = "data-erasure"
+
+# ---------------------------------------------------------------------------
+# Leaf derivation: operationId (PascalCase) → `<verb> <noun>`.
+# The split + lowercasing is in code (r2 §b); `known_verbs` is the documented
+# verb lexicon, used only to WARN on an unrecognized leading verb (spec drift
+# signal). Because every lexicon entry maps to its own lowercase form, the verb
+# is always `lowercase(first_token)` — the lexicon never changes the output.
+[leaf]
+known_verbs = [
+  "list", "get", "create", "update", "delete", "add", "remove", "export",
+  "import", "search", "duplicate", "activate", "refresh", "schedule",
+  "authenticate", "reset", "validate", "send", "test", "download", "cancel",
+  "pause", "resume",
+]
+
+# ---------------------------------------------------------------------------
+# id_alias: the one well-spelled alias for a spec typo. `CreatAsmGroup` (missing
+# the second 'e') is the real operationId in tsg_suppressions; expose the
+# correctly-spelled id as an alias so callers that type it still resolve.
+[[id_alias]]
+namespace = "suppressions"
+operation_id = "CreatAsmGroup"
+alias = "CreateAsmGroup"
