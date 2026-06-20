@@ -60,6 +60,20 @@ impl SgServer {
         CallToolResult::error(vec![Content::text(msg)])
     }
 
+    /// Build a tool result from an `invoke` result envelope, flagging `isError`
+    /// when the envelope encodes a failure. The full envelope body is preserved
+    /// either way (success OR error) so the agent can read the detail — only the
+    /// MCP-level `isError` bit changes, so a convention-following agent no longer
+    /// reads a denied/failed call as success.
+    fn from_envelope(v: Value) -> CallToolResult {
+        let content = vec![Content::text(v.to_string())];
+        if envelope_is_error(&v) {
+            CallToolResult::error(content)
+        } else {
+            CallToolResult::success(content)
+        }
+    }
+
     /// The advertised tool list: 3 meta-tools + any promoted tools.
     fn build_tools(&self) -> Vec<Tool> {
         let mut tools = vec![
@@ -72,13 +86,16 @@ impl SgServer {
             Tool::new(
                 "describe_operation",
                 "Describe one operation by id: params, required fields, a compact body example, \
-                 and constraints. Use before invoke_operation. expand=full returns the entire schema.",
+                 cross-field constraints, and a compact response field-menu for chaining. Use \
+                 before invoke_operation. expand=full returns the entire request + response schema.",
                 schema::arc_object(schema::describe_schema()),
             ),
             Tool::new(
                 "invoke_operation",
-                "Invoke an operation by id with {path_params, query, headers, body}. Safety policy, \
-                 validation, and secret redaction are enforced server-side. Use dry_run:true to preview.",
+                "Invoke an operation by id with {path_params, query, headers, body}. Optional: \
+                 dry_run (preview), fields/max_items (trim the result), await (poll async jobs). \
+                 Safety policy, validation, and secret redaction are enforced server-side; isError \
+                 reflects failures.",
                 schema::arc_object(schema::invoke_schema()),
             ),
         ];
@@ -96,7 +113,9 @@ impl SgServer {
 impl ServerHandler for SgServer {
     fn get_info(&self) -> ServerInfo {
         ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            .with_server_info(Implementation::from_build_env())
+            // Identify as `sendgrid` (not rmcp's build-env default `sendgrid_mcp`),
+            // with this crate's real version, so clients display a stable identity.
+            .with_server_info(Implementation::new("sendgrid", env!("CARGO_PKG_VERSION")))
             .with_instructions(crate::instructions::INSTRUCTIONS)
     }
 
@@ -137,7 +156,7 @@ impl SgServer {
                 Err(msg) => Ok(Self::err(msg)),
             },
             "invoke_operation" => match invoke::invoke_operation(&self.runtime, &args).await {
-                invoke::InvokeOutcome::Envelope(v) => Ok(Self::ok(v)),
+                invoke::InvokeOutcome::Envelope(v) => Ok(Self::from_envelope(v)),
                 invoke::InvokeOutcome::UsageError(msg) => Ok(Self::err(msg)),
             },
             other => {
@@ -147,7 +166,7 @@ impl SgServer {
                     match reg.by_id(&p.op_id) {
                         Some(op) => {
                             let v = invoke::invoke_promoted(&self.runtime, op, &args).await;
-                            Ok(Self::ok(v))
+                            Ok(Self::from_envelope(v))
                         }
                         None => Ok(Self::err(format!(
                             "internal: promoted op `{}` not found in registry",
@@ -216,6 +235,21 @@ fn resolve_promoted(cfg: &McpServerConfig) -> Vec<PromotedTool> {
             op_id: op.id.clone(),
         })
         .collect()
+}
+
+/// True when an `invoke` result envelope encodes a failure (so the tool result
+/// should carry `isError:true`). The canonical signal is a top-level `error`
+/// payload (the `ExecuteResult` `Payload::Error` variant; success body fields nest
+/// under `data`, so this never false-positives). A stable `E_*` `code` and an HTTP
+/// failure `status` (>=400) are redundant-but-defensive signals — and the await
+/// path injects a synthetic `code` for a 2xx poll whose terminal job status is a
+/// failure, which this then catches.
+fn envelope_is_error(v: &Value) -> bool {
+    v.get("error").is_some()
+        || v.get("code").and_then(Value::as_str).is_some()
+        || v.get("status")
+            .and_then(Value::as_u64)
+            .is_some_and(|s| s >= 400)
 }
 
 #[cfg(test)]
@@ -333,6 +367,75 @@ mod tests {
             "synthesized example should pass validation, got {env}"
         );
         assert!(env["request_preview"].is_object());
+    }
+
+    #[tokio::test]
+    async fn invoke_error_envelope_sets_is_error() {
+        // A policy-denied invoke (E_POLICY_DENIED, offline pre-flight) must surface
+        // as isError:true so a convention-following agent doesn't read it as success,
+        // while the envelope body is preserved as content.
+        let mut c = cfg(vec![], vec![], false);
+        c.runtime.policy = sendgrid_core::Policy::read_only();
+        let s = SgServer::new(c);
+
+        let mut a = Map::new();
+        a.insert("id".into(), json!("sg_mail_send_SendMail"));
+        a.insert(
+            "body".into(),
+            json!({
+                "from": { "email": "s@example.com" },
+                "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
+                "subject": "hi",
+                "content": [ { "type": "text/plain", "value": "hello" } ]
+            }),
+        );
+        let r = s.dispatch_tool("invoke_operation", a).await.unwrap();
+        assert_eq!(r.is_error, Some(true), "denied call must be isError:true");
+        // Body intact: the envelope (with its code) is still the content.
+        assert_eq!(result_json(&r)["code"], json!("E_POLICY_DENIED"));
+    }
+
+    #[tokio::test]
+    async fn invoke_success_is_not_is_error() {
+        // A successful dry-run invoke must be isError:false (not flagged as an error).
+        let s = SgServer::new(cfg(vec![], vec![], false));
+        let mut a = Map::new();
+        a.insert("id".into(), json!("sg_mail_send_SendMail"));
+        a.insert("dry_run".into(), json!(true));
+        a.insert(
+            "body".into(),
+            json!({
+                "from": { "email": "s@example.com" },
+                "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
+                "subject": "hi",
+                "content": [ { "type": "text/plain", "value": "hello" } ]
+            }),
+        );
+        let r = s.dispatch_tool("invoke_operation", a).await.unwrap();
+        assert_eq!(
+            r.is_error,
+            Some(false),
+            "successful dry-run is not an error"
+        );
+        assert_eq!(result_json(&r)["status"], json!(0));
+    }
+
+    #[test]
+    fn envelope_is_error_classifies_envelopes() {
+        // Unit-cover the discriminator used by from_envelope.
+        assert!(envelope_is_error(
+            &json!({ "error": { "code": "X" }, "code": "X" })
+        ));
+        assert!(envelope_is_error(&json!({ "status": 404, "error": {} })));
+        assert!(envelope_is_error(
+            &json!({ "status": 200, "code": "E_ASYNC_JOB_FAILED", "data": {} })
+        ));
+        assert!(!envelope_is_error(
+            &json!({ "status": 200, "data": { "ok": true } })
+        ));
+        assert!(!envelope_is_error(
+            &json!({ "status": 0, "data": { "dry_run": true } })
+        ));
     }
 
     #[tokio::test]

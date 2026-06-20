@@ -19,3 +19,8 @@ anyhow.workspace = true
 clap = "4"
 # CLI owns the async runtime; execute() is async.
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
+
+[dev-dependencies]
+# Construct `RawResponse.status` (http::StatusCode) in download-write unit tests.
+# Pinned to core's `http = "1"`; the lockfile already resolves it transitively.
+http = "1"

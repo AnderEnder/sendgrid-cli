@@ -12,11 +12,27 @@ WORKFLOW (search → describe → invoke):
        "single send"; "verify a domain" → "validate"; "suppress" → "suppression".
        You can also narrow with a `domain` or `tags` filter (e.g. domain:"suppressions").
   2. describe_operation { id, [expand: minimal|full] }
-     → minimal (default): params, required fields, a compact body EXAMPLE, and
-       cross-field constraints — enough to build a valid call cheaply.
-       full: the complete request-body JSON Schema (large; opt in only when needed).
-  3. invoke_operation { id, [path_params], [query], [headers], [body], [dry_run], [confirm] }
+     → minimal (default): params, required fields, a compact body EXAMPLE, cross-field
+       constraints, and a compact RESPONSE field-menu (top-level names→types, one level
+       into a result array's element) so you can chain calls — enough to build a valid
+       call cheaply. The example is STRUCTURALLY valid (passes schema + cross-field rules;
+       placeholders match each field's kind) but values are NOT guaranteed semantically
+       sendable — swap `user@example.com` etc. for real values before a live call.
+       full: the complete request-body AND response-body JSON Schemas (large; opt in).
+  3. invoke_operation { id, [path_params], [query], [headers], [body], [dry_run], [confirm],
+                         [fields], [max_items], [await] }
      → executes the op and returns a uniform result envelope (below).
+       isError is set on the tool result whenever the call failed (policy denial,
+       validation, region, a 4xx/5xx, or a failed async job) — a success envelope is
+       never reported as an error and vice-versa.
+       OUTPUT SHAPING (optional, to keep large responses out of context):
+         fields: jq-lite dotted paths to keep from the success `data`, e.g.
+                 ["result.id","result.name"]. A path crossing an array projects each
+                 element (so `result[].id` keeps every item's id). Echoed back as `shaped`.
+         max_items: cap the result array (top-level array, or the op's paginated result
+                 array); when it truncates, a `truncated` note is added. Combine with
+                 pagination to fetch more. Shaping touches only success data, never
+                 errors/previews/secret handling.
 
 OPERATION IDS: `sg_<domain>_<subgroup>_<operationId>` (the subgroup is dropped when
 it equals the domain), e.g. `sg_mail_send_SendMail`, `sg_marketing_lists_CreateMarketingList`.
@@ -50,7 +66,24 @@ it stops early, the `next` field carries the continuation cursor/params to pass 
 REGIONS: some ops are global-only and will fail closed on an EU-configured server unless
 fallback is enabled (code E_REGION_UNAVAILABLE).
 
+ASYNC JOBS / EXPORTS: a handful of ops are multi-step. describe_operation and the invoke
+result carry an `async` block naming the job `kind` and the `next` step:
+  - poll: returns HTTP 202 + a job. Pass "await": true to invoke_operation to submit then
+    poll the companion status op to a terminal state (bounded; on timeout a warning is
+    added and you can re-invoke or call the status op yourself with the returned id). A
+    job that finishes in a FAILED terminal state is reported as an error (isError + code
+    E_ASYNC_JOB_FAILED), with the job data kept intact.
+  - external_download: the response carries presigned URL(s); invoke surfaces them as
+    `download_urls` for you to fetch (binary streaming over MCP is out of scope).
+  - external_upload / fire_and_forget: described for legibility; uploads are driven via
+    the CLI (binary upload is out of MCP scope).
+
+SERVER IDENTITY / STARTUP: this server reports its implementation name as `sendgrid`.
+It fails closed at startup if the configured API key is not a well-formed SendGrid key
+(E_BAD_KEY_FORMAT) — if that happens the process never serves a single tool, so a dead
+pipe at initialize means the key/credentials need fixing on the host, not a retry.
+
 TIP: if --expose-tags/--expose-op were set, some operations also appear as first-class
 tools (named by their id) that take the op's parameters directly and route through the
-same safety pipeline.
+same safety pipeline (and accept the same fields/max_items/await controls where relevant).
 "#;

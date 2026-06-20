@@ -54,7 +54,20 @@ pub fn invoke_schema() -> Value {
             "headers": { "type": "object", "description": "Header values keyed by name (on-behalf-of/authorization are ignored — set via server config)." },
             "body": { "description": "Request body JSON (object, or array for the few array-body ops)." },
             "dry_run": { "type": "boolean", "description": "If true, build + return a redacted request_preview without sending." },
-            "confirm": { "type": "boolean", "description": "Acknowledgement only; NOT a security control and never bypasses policy." }
+            "confirm": { "type": "boolean", "description": "Acknowledgement only; NOT a security control and never bypasses policy." },
+            "fields": {
+                "type": "array",
+                "items": { "type": "string" },
+                "description": "Optional jq-lite projection of the success result `data`: dotted paths to keep (e.g. [\"result.id\", \"result.name\"]). A path crossing an array projects each element. Trims a large response before it enters context. Does not affect errors/previews or secret handling."
+            },
+            "max_items": {
+                "type": "integer",
+                "description": "Optional cap on the result array length (the top-level array, or the op's paginated result array). When it truncates, a `truncated` note is added. Use with pagination for more."
+            },
+            "await": {
+                "type": "boolean",
+                "description": "Async Poll-class ops only: if true, submit then poll the companion status op to a terminal state (bounded). The result's `async` block names the job kind + next step; for non-Poll ops this is ignored."
+            }
         },
         "required": ["id"]
     })
@@ -107,6 +120,32 @@ pub fn promoted_schema(op: &OperationIr) -> Value {
         "dry_run".into(),
         json!({ "type": "boolean", "description": "If true, preview the request without sending." }),
     );
+    // Output shaping is universally useful; advertise it on promoted tools too.
+    props.insert(
+        "fields".into(),
+        json!({
+            "type": "array",
+            "items": { "type": "string" },
+            "description": "Optional jq-lite projection of the success result `data` (dotted paths; an array path projects each element)."
+        }),
+    );
+    props.insert(
+        "max_items".into(),
+        json!({
+            "type": "integer",
+            "description": "Optional cap on the result array length (adds a `truncated` note when it truncates)."
+        }),
+    );
+    // `await` is only meaningful for Poll-class ops — advertise it just there.
+    if op.async_job == sendgrid_core::ir::AsyncJob::Poll {
+        props.insert(
+            "await".into(),
+            json!({
+                "type": "boolean",
+                "description": "If true, submit then poll the companion status op to a terminal state (bounded)."
+            }),
+        );
+    }
 
     json!({
         "type": "object",

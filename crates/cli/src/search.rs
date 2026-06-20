@@ -33,17 +33,24 @@ pub fn run(terms: &[String], include_legacy: bool) -> i32 {
     let shown = ops.len().min(MAX);
     for op in ops.iter().take(MAX) {
         let summary = op.summary.as_deref().unwrap_or("");
-        let cli = op.cli_path.join(" ");
         println!("{}  [{} {}]", op.id, op.method, op.path);
         if !summary.is_empty() {
             println!("    {summary}");
         }
-        println!("    cli: sendgrid {cli}");
+        println!("    {}", cli_hint(op));
     }
     if ops.len() > MAX {
         eprintln!("… {} more (showing top {MAX})", ops.len() - shown);
     }
     0
+}
+
+/// The runnable `cli:` hint line for an op. Built from [`crate::tree::chain_key`]
+/// — the SAME group-tokens + hyphenated-leaf construction the command tree uses —
+/// so the printed command is EXACTLY what resolves (e.g. `send-mail`, not the raw
+/// space-joined `cli_path` `send mail`, which is not a real leaf).
+fn cli_hint(op: &OperationIr) -> String {
+    format!("cli: sendgrid {}", crate::tree::chain_key(op))
 }
 
 /// Ranked ops for `query` (full result set, descending score) via the shared core
@@ -72,6 +79,17 @@ mod tests {
     #[test]
     fn no_match_returns_nonzero() {
         assert_eq!(run(&["qzxwvk".to_string()], false), 1);
+    }
+
+    #[test]
+    fn cli_hint_is_runnable_for_send_mail() {
+        // Regression (final review): the hint must print the hyphenated leaf
+        // (`send-mail`) — the real runnable command — not the raw space-joined
+        // `cli_path` (`send mail`), which resolves to nothing.
+        let op = Registry::global()
+            .by_id("sg_mail_send_SendMail")
+            .expect("SendMail");
+        assert_eq!(cli_hint(op), "cli: sendgrid mail send send-mail");
     }
 
     #[test]

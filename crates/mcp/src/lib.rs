@@ -17,6 +17,7 @@ mod invoke;
 mod schema;
 mod search;
 mod server;
+mod shape;
 mod text;
 
 use rmcp::{ServiceExt, transport::stdio};

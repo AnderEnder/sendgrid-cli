@@ -324,4 +324,24 @@ mod tests {
         let n = render_ndjson(&data);
         assert_eq!(n.lines().count(), 2);
     }
+
+    #[test]
+    fn render_does_not_redact_a_revealed_created_key() {
+        // F1 contract: core reveals CreateApiKey's `api_key` (its `finalize` keeps
+        // the SG-pattern in a reveal op's success body). The CLI render layer must
+        // NOT re-scrub it — it serializes `data` verbatim. This pins the JSON path
+        // render() takes for a success envelope. (Auth-key scrubbing lives in core;
+        // the CLI adds none.)
+        let created = "SG.AbCdEfGhIjKlMnOpQrStUv.0123456789abcdefghijklmnopqrstuvwxyzABCDEFG";
+        let result = sendgrid_core::ExecuteResult::success(
+            201,
+            sendgrid_core::ir::SideEffect::Write,
+            json!({ "api_key": created, "api_key_id": "abc123", "name": "ci" }),
+        );
+        let rendered = to_json_string(&envelope_value(&result), false);
+        assert!(
+            rendered.contains(created),
+            "the revealed created key must survive CLI rendering: {rendered}"
+        );
+    }
 }

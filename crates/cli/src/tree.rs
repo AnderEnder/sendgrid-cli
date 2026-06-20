@@ -35,8 +35,9 @@ fn leaf_name(op: &OperationIr) -> String {
 }
 
 /// The full clap subcommand chain for an op (group tokens + leaf), space-joined —
-/// the key the parsed tree resolves through.
-fn chain_key(op: &OperationIr) -> String {
+/// the key the parsed tree resolves through, and the exact runnable command (after
+/// a `sendgrid ` prefix). `search` reuses this so its `cli:` hint is always runnable.
+pub(crate) fn chain_key(op: &OperationIr) -> String {
     let p = &op.cli_path;
     let n = p.len();
     let mut parts: Vec<&str> = p[..n - 2].iter().map(String::as_str).collect();

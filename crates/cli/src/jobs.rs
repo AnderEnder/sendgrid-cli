@@ -23,8 +23,8 @@ use sendgrid_core::ir::{AsyncJob, Location, OperationIr};
 use sendgrid_core::runtime::envelope::exit_code_for_status;
 use sendgrid_core::runtime::http::build_client;
 use sendgrid_core::{
-    ExecuteResult, PollConfig, Registry, ReqwestDispatcher, await_job, execute, external_download,
-    external_upload,
+    ExecuteResult, PollConfig, RawResponse, Registry, ReqwestDispatcher, await_job, execute,
+    external_download, external_upload,
 };
 use serde_json::{Map, Value, json};
 use std::path::Path;
@@ -390,31 +390,9 @@ pub async fn run_download(op: &OperationIr, args: Value, globals: &GlobalOpts, d
     for (i, url) in urls.iter().enumerate() {
         match external_download(&dispatcher, &client, url).await {
             Ok(resp) => {
-                let code = resp.status.as_u16();
-                if !resp.status.is_success() {
-                    any_fail = true;
-                    files.push(json!({ "index": i, "status": code, "ok": false }));
-                    continue;
-                }
-                let out = if dir_mode {
-                    dest_path.join(filename_from_url(url).unwrap_or_else(|| format!("part-{i}")))
-                } else {
-                    dest_path.to_path_buf()
-                };
-                // RawResponse carries the true wire bytes, so gzipped/binary
-                // exports round-trip faithfully (no lossy JSON re-encode).
-                let payload = resp.bytes;
-                match std::fs::write(&out, &payload) {
-                    Ok(()) => files.push(json!({
-                        "index": i, "status": code, "ok": true,
-                        "path": out.display().to_string(), "bytes": payload.len(),
-                    })),
-                    Err(e) => {
-                        any_fail = true;
-                        eprintln!("error: writing `{}`: {e}", out.display());
-                        files.push(json!({ "index": i, "status": code, "ok": false, "error": e.to_string() }));
-                    }
-                }
+                let (ok, entry) = persist_part(&resp, dest_path, dir_mode, url, i);
+                any_fail |= !ok;
+                files.push(entry);
             }
             Err(e) => {
                 any_fail = true;
@@ -427,6 +405,47 @@ pub async fn run_download(op: &OperationIr, args: Value, globals: &GlobalOpts, d
     let report = json!({ "operation": op.id, "downloaded": files, "urls": urls });
     println!("{}", pretty(&report));
     if any_fail { 8 } else { 0 }
+}
+
+/// Write one fetched download response to disk and produce its report entry.
+///
+/// Writes `resp.bytes` **verbatim** — the raw wire bytes from
+/// [`external_download`]'s [`RawResponse`] — so gzipped/binary exports round-trip
+/// byte-for-byte (no lossy JSON/UTF-8 re-encode; the removed `body_bytes` helper
+/// could not even hold invalid UTF-8). Returns `(ok, entry)`; `ok == false` flags
+/// the caller's `any_fail` (a non-2xx status or a write error).
+fn persist_part(
+    resp: &RawResponse,
+    dest_path: &Path,
+    dir_mode: bool,
+    url: &str,
+    i: usize,
+) -> (bool, Value) {
+    let code = resp.status.as_u16();
+    if !resp.status.is_success() {
+        return (false, json!({ "index": i, "status": code, "ok": false }));
+    }
+    let out = if dir_mode {
+        dest_path.join(filename_from_url(url).unwrap_or_else(|| format!("part-{i}")))
+    } else {
+        dest_path.to_path_buf()
+    };
+    match std::fs::write(&out, &resp.bytes) {
+        Ok(()) => (
+            true,
+            json!({
+                "index": i, "status": code, "ok": true,
+                "path": out.display().to_string(), "bytes": resp.bytes.len(),
+            }),
+        ),
+        Err(e) => {
+            eprintln!("error: writing `{}`: {e}", out.display());
+            (
+                false,
+                json!({ "index": i, "status": code, "ok": false, "error": e.to_string() }),
+            )
+        }
+    }
 }
 
 /// All URL strings at `field`, handling the non-uniform shape: a STRING
@@ -529,6 +548,59 @@ mod tests {
             Some("export-1.csv.gz".to_string())
         );
         assert_eq!(filename_from_url("https://h/"), None);
+    }
+
+    #[test]
+    fn persist_part_writes_raw_bytes_faithfully() {
+        // A non-UTF-8 binary payload (gzip magic + NUL + high bytes). The old lossy
+        // JSON re-encode could not even represent this; `resp.bytes` must land on
+        // disk byte-for-byte.
+        let payload: Vec<u8> = vec![0x1f, 0x8b, 0x08, 0x00, 0x00, 0xff, 0xfe, 0x42, 0x00];
+        let resp = RawResponse {
+            status: http::StatusCode::OK,
+            bytes: payload.clone(),
+        };
+        let dest = std::env::temp_dir().join("sg_cli_persist_faithful.csv.gz");
+        let _ = std::fs::remove_file(&dest);
+
+        let (ok, entry) = persist_part(&resp, &dest, false, "https://h/export.csv.gz?sig=x", 0);
+        assert!(ok, "2xx write should report ok");
+        assert_eq!(entry["bytes"], json!(payload.len()));
+        assert_eq!(entry["ok"], json!(true));
+
+        let written = std::fs::read(&dest).expect("file written");
+        assert_eq!(written, payload, "bytes must round-trip byte-for-byte");
+        let _ = std::fs::remove_file(&dest);
+    }
+
+    #[test]
+    fn persist_part_dir_mode_derives_filename_and_reports_failure_on_non_2xx() {
+        let dir = std::env::temp_dir().join("sg_cli_persist_dir");
+        let _ = std::fs::create_dir_all(&dir);
+
+        // dir_mode → filename is derived from the URL's last path segment.
+        let ok_resp = RawResponse {
+            status: http::StatusCode::OK,
+            bytes: b"id,name\n1,a\n".to_vec(),
+        };
+        let (ok, entry) = persist_part(&ok_resp, &dir, true, "https://h/exports/part-7.csv?s=1", 7);
+        assert!(ok);
+        assert_eq!(
+            entry["path"],
+            json!(dir.join("part-7.csv").display().to_string())
+        );
+        let _ = std::fs::remove_file(dir.join("part-7.csv"));
+
+        // A non-2xx status flags failure and writes nothing.
+        let bad = RawResponse {
+            status: http::StatusCode::FORBIDDEN,
+            bytes: Vec::new(),
+        };
+        let (ok2, entry2) = persist_part(&bad, &dir, true, "https://h/exports/denied.csv", 1);
+        assert!(!ok2, "non-2xx must flag any_fail");
+        assert_eq!(entry2["status"], json!(403));
+        assert_eq!(entry2["ok"], json!(false));
+        let _ = std::fs::remove_dir_all(&dir);
     }
 
     #[test]

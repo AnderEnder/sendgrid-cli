@@ -186,4 +186,24 @@ mod tests {
             ids[0]
         );
     }
+
+    #[test]
+    fn ranking_parity_smoke_suppress_email_now_surfaces_suppressions() {
+        // F1 improved the shared core ranker (stemming/synonyms/side-effect bias): a
+        // previously-missed query now ranks a suppressions op #1. Assert that win is
+        // visible through the MCP wrapper (it calls core::search), without copying
+        // core's full ranking suite.
+        let mut args = Map::new();
+        args.insert("query".into(), json!("suppress an email address"));
+        let out = search_operations(&args, false);
+        let top = out["results"][0]["id"].as_str().unwrap_or_default();
+        let domain = Registry::global()
+            .by_id(top)
+            .map(|o| o.domain.clone())
+            .unwrap_or_default();
+        assert_eq!(
+            domain, "suppressions",
+            "top hit for a suppress query should be in the suppressions domain, got {top}"
+        );
+    }
 }

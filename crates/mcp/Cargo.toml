@@ -17,3 +17,7 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 [dev-dependencies]
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+# A localhost SendGrid mock the real ReqwestDispatcher drives end-to-end (via
+# RuntimeConfig::base_url_override) to test the reveal/shaping/await behavior of
+# invoke without a live network.
+wiremock = "0.6"

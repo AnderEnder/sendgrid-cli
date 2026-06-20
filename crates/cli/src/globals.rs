@@ -9,7 +9,7 @@
 //! are parsed *before* the subcommand and never clash with a leaf's own flags.
 
 use anyhow::{Context, bail};
-use clap::{Arg, ArgAction, ArgMatches, value_parser};
+use clap::{Arg, ArgAction, ArgMatches, parser::ValueSource, value_parser};
 use sendgrid_core::ir::SideEffect;
 use sendgrid_core::runtime::auth::resolve_api_key;
 use sendgrid_core::{ApiKey, Policy, Region, RuntimeConfig};
@@ -53,6 +53,10 @@ pub struct GlobalOpts {
     pub page_token: Option<String>,
     pub include_legacy: bool,
     pub allow: Option<String>,
+    /// Whether `--allow` was passed explicitly on the command line (vs. absent).
+    /// Drives the `mcp` subcommand's read-only default: an unsupervised server with
+    /// no explicit policy locks down to Read, while direct CLI use stays allow-all.
+    pub allow_explicit: bool,
     pub allow_bulk: bool,
     pub on_behalf_of: Option<String>,
     pub api_key: Option<String>,
@@ -166,6 +170,9 @@ impl GlobalOpts {
             page_token: m.get_one::<String>("page-token").cloned(),
             include_legacy: m.get_flag("include-legacy"),
             allow: m.get_one::<String>("allow").cloned(),
+            // CommandLine (not the absent `None` or a future default/env) means the
+            // operator made an explicit policy choice — honored as-is everywhere.
+            allow_explicit: matches!(m.value_source("allow"), Some(ValueSource::CommandLine)),
             allow_bulk: m.get_flag("allow-bulk"),
             on_behalf_of: m.get_one::<String>("on-behalf-of").cloned(),
             api_key: m.get_one::<String>("api-key").cloned(),
@@ -231,16 +238,108 @@ impl GlobalOpts {
     }
 
     /// Build the [`McpServerConfig`] for `sendgrid mcp`.
+    ///
+    /// The MCP server is the **unsupervised** surface, so it defaults to READ-ONLY:
+    /// with no explicit `--allow`, the policy locks down to `{Read}` (overriding the
+    /// allow-all default that `runtime_config` hands direct CLI use). An explicit
+    /// `--allow` is honored verbatim (with F1's implied-Read). This is the *only*
+    /// place the default flips — direct op invocation stays allow-all.
     pub fn mcp_config(
         &self,
         expose_tags: Vec<String>,
         expose_ops: Vec<String>,
     ) -> anyhow::Result<McpServerConfig> {
+        let mut runtime = self.runtime_config()?;
+        if !self.allow_explicit {
+            runtime.policy = Policy::read_only();
+        }
         Ok(McpServerConfig {
-            runtime: self.runtime_config()?,
+            runtime,
             include_legacy: self.include_legacy,
             expose_tags,
             expose_ops,
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tree;
+    use sendgrid_core::ir::SideEffect;
+
+    /// A syntactically valid dummy key so `runtime_config`/`mcp_config` resolve a
+    /// key (passed via `--api-key` so no env var / ordering is relied on).
+    const DUMMY_KEY: &str =
+        "SG.0123456789abcdefghABCD.0123456789abcdefghABCDEFGHIJKLMNOPqrstuvwxyz123";
+
+    /// Parse argv through the real command tree and extract the root globals — the
+    /// only path that populates clap's `value_source` for `--allow`.
+    fn globals_from(argv: &[&str]) -> GlobalOpts {
+        let (command, _resolve) = tree::build(false);
+        let matches = command.try_get_matches_from(argv).expect("argv parses");
+        GlobalOpts::from_matches(&matches).expect("globals")
+    }
+
+    #[test]
+    fn mcp_defaults_to_read_only_without_allow() {
+        // The unsupervised MCP surface locks down to {Read} when no policy is given.
+        let g = globals_from(&["sendgrid", "--api-key", DUMMY_KEY, "mcp"]);
+        assert!(!g.allow_explicit, "no --allow was passed");
+        let cfg = g.mcp_config(vec![], vec![]).expect("mcp config");
+        let p = cfg.runtime.policy;
+        assert!(p.allows(SideEffect::Read), "read is allowed");
+        assert!(
+            !p.allows(SideEffect::Write),
+            "write denied under read-only default"
+        );
+        assert!(!p.allows(SideEffect::Destructive), "destructive denied");
+        assert!(!p.allows(SideEffect::Send), "send denied");
+    }
+
+    #[test]
+    fn mcp_honors_explicit_allow() {
+        let g = globals_from(&["sendgrid", "--api-key", DUMMY_KEY, "--allow", "send", "mcp"]);
+        assert!(g.allow_explicit, "--allow was passed");
+        let cfg = g.mcp_config(vec![], vec![]).expect("mcp config");
+        let p = cfg.runtime.policy;
+        // F1 contract: `from_classes` implies Read, so `--allow send` → {Read, Send}.
+        assert!(p.allows(SideEffect::Read), "read is implied");
+        assert!(p.allows(SideEffect::Send), "send is allowed");
+        assert!(!p.allows(SideEffect::Write), "write not granted");
+        assert!(
+            !p.allows(SideEffect::Destructive),
+            "destructive not granted"
+        );
+    }
+
+    #[test]
+    fn direct_cli_op_stays_allow_all_without_allow() {
+        // The read-only default is MCP-only: a plain op with no --allow keeps all
+        // four classes (the supervised CLI's allow-all default is unchanged).
+        let g = globals_from(&[
+            "sendgrid",
+            "--api-key",
+            DUMMY_KEY,
+            "mail",
+            "send",
+            "send-mail",
+            "--body",
+            "{}",
+        ]);
+        assert!(!g.allow_explicit);
+        let cfg = g.runtime_config().expect("runtime config");
+        let p = cfg.policy;
+        for e in [
+            SideEffect::Read,
+            SideEffect::Write,
+            SideEffect::Destructive,
+            SideEffect::Send,
+        ] {
+            assert!(
+                p.allows(e),
+                "{e:?} should be allowed under the allow-all default"
+            );
+        }
     }
 }

@@ -399,6 +399,7 @@ mod tests {
             page_token: None,
             include_legacy: false,
             allow: None,
+            allow_explicit: false,
             allow_bulk: false,
             on_behalf_of: None,
             api_key: Some(DUMMY_KEY.to_string()),

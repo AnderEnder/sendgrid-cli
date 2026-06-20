@@ -4,13 +4,17 @@
 //! top-level body field menu (name→type) + a **synthesized compact example**
 //! (required chains + curated cross-field constraints, recipient/email
 //! placeholders) + constraint notes (the op's curated `Constraint`s plus
-//! schema-derived ones). The example is **repaired to satisfy the cross-field
-//! constraints** (e.g. SendMail gets `content` + `subject`) so it is genuinely
-//! usable, not valid-locally-but-400-remotely. It never dumps the full body schema
-//! (SendMail's is ~22 KB / ~5k tokens).
+//! schema-derived ones) + a compact **response** field-menu for chaining calls.
+//! The example is **repaired to satisfy the cross-field constraints** (e.g. SendMail
+//! gets `content` + `subject`) so it is **structurally valid** — it passes schema
+//! validation and the op's cross-field rules, and placeholder values are biased to
+//! the field's kind (a real email syntax, a real MIME type). It is NOT a guarantee
+//! the values are *semantically sendable* (e.g. `user@example.com` is not a real
+//! inbox; swap in real values before a live call). It never dumps the full body
+//! schema (SendMail's is ~22 KB / ~5k tokens).
 //!
-//! `full` adds the complete resolved request-body JSON Schema for callers that
-//! explicitly opt into the cost.
+//! `full` adds the complete resolved request-body AND response-body JSON Schemas for
+//! callers that explicitly opt into the cost.
 
 use crate::text::truncate;
 use sendgrid_core::Registry;
@@ -95,7 +99,154 @@ pub fn describe_operation(args: &Map<String, Value>) -> Result<Value, String> {
         }
     }
 
+    // Response schema (independent of the request body — a GET has a response but no
+    // body). `full` includes the complete resolved 2xx response schema; `minimal`
+    // adds a compact field-menu (top-level names→types, descending one level into a
+    // result array's element) so an agent can chain calls — e.g. learn that a list
+    // returns `result[]` with `id` — without paying for the whole schema. Ops with
+    // no embedded response schema (e.g. 204) simply omit the block.
+    if let Some(resp) = reg.response_schema(op) {
+        match expand {
+            "full" => {
+                out.insert("response_body_schema".into(), resp.clone());
+            }
+            _ => {
+                out.insert("response".into(), response_menu(resp));
+            }
+        }
+    }
+
+    // Async/export legibility: surface the multi-step flow + next action so the
+    // agent knows a 202/job is coming and how to retrieve the result.
+    if op.async_job != sendgrid_core::ir::AsyncJob::None {
+        out.insert("async".into(), async_describe(op));
+    }
+
     Ok(Value::Object(out))
+}
+
+/// A compact, token-bounded menu of a response schema: top-level field names→types,
+/// plus one level into array-of-object fields (their element field menu), so an
+/// agent can see e.g. `result[]` carries `id`/`name` for chaining — without the full
+/// schema. Names→types only; never values or descriptions.
+fn response_menu(schema: &Value) -> Value {
+    // A top-level array response: describe its element.
+    if schema.get("type").and_then(Value::as_str) == Some("array") || schema.get("items").is_some()
+    {
+        let element = schema.get("items").unwrap_or(schema);
+        let mut m = Map::new();
+        m.insert("is_array".into(), json!(true));
+        if let Some(fields) = field_menu(element) {
+            m.insert("item_fields".into(), fields);
+        }
+        return Value::Object(m);
+    }
+
+    let mut m = Map::new();
+    if let Some(props) = schema.get("properties").and_then(Value::as_object) {
+        let mut fields = Map::new();
+        let mut items = Map::new();
+        for (name, sub) in props {
+            fields.insert(name.clone(), json!(type_label(sub)));
+            // Descend one level into array<object> fields (the chaining case).
+            if let Some(element) = array_object_element(sub)
+                && let Some(menu) = field_menu(element)
+            {
+                items.insert(name.clone(), menu);
+            }
+        }
+        m.insert("fields".into(), Value::Object(fields));
+        if !items.is_empty() {
+            m.insert("items".into(), Value::Object(items));
+        }
+    } else {
+        m.insert("type".into(), json!(type_label(schema)));
+    }
+    Value::Object(m)
+}
+
+/// The element schema if `node` is an `array` whose items are an object; else `None`.
+fn array_object_element(node: &Value) -> Option<&Value> {
+    if node.get("type").and_then(Value::as_str) != Some("array") {
+        return None;
+    }
+    let items = node.get("items")?;
+    let is_object = items.get("type").and_then(Value::as_str) == Some("object")
+        || items.get("properties").is_some();
+    is_object.then_some(items)
+}
+
+/// A `{name: type_label}` menu of an object schema's top-level properties (`None`
+/// when it has none).
+fn field_menu(node: &Value) -> Option<Value> {
+    let props = node.get("properties").and_then(Value::as_object)?;
+    let mut fields = Map::new();
+    for (name, sub) in props {
+        fields.insert(name.clone(), json!(type_label(sub)));
+    }
+    Some(Value::Object(fields))
+}
+
+/// Describe an async op's multi-step flow for `describe_operation`: the job kind,
+/// the companion status op (Poll) or presigned-URL field (upload/download), and the
+/// next action an agent should take.
+fn async_describe(op: &OperationIr) -> Value {
+    use sendgrid_core::ir::AsyncJob;
+    let mut m = Map::new();
+    let kind = match op.async_job {
+        AsyncJob::Poll => "poll",
+        AsyncJob::FireAndForget => "fire_and_forget",
+        AsyncJob::ExternalUpload => "external_upload",
+        AsyncJob::ExternalDownload => "external_download",
+        AsyncJob::None => "none",
+    };
+    m.insert("kind".into(), json!(kind));
+    match op.async_job {
+        AsyncJob::Poll => {
+            if let Some(s) = &op.async_status_op {
+                m.insert("status_op".into(), json!(s));
+            }
+            m.insert(
+                "next".into(),
+                json!(
+                    "Returns HTTP 202 + a job. invoke_operation with \"await\": true to poll the \
+                     status op to completion, or invoke the status op yourself with the returned id."
+                ),
+            );
+        }
+        AsyncJob::FireAndForget => {
+            m.insert(
+                "next".into(),
+                json!("Returns HTTP 202; no status endpoint — the work completes server-side."),
+            );
+        }
+        AsyncJob::ExternalUpload => {
+            if let Some(f) = &op.async_uri_field {
+                m.insert("uri_field".into(), json!(f));
+            }
+            m.insert(
+                "next".into(),
+                json!(
+                    "Returns an upload URL (see uri_field); PUT the file's bytes to it. Binary \
+                     upload is out of MCP scope (use the CLI `--upload-file`)."
+                ),
+            );
+        }
+        AsyncJob::ExternalDownload => {
+            if let Some(f) = &op.async_uri_field {
+                m.insert("uri_field".into(), json!(f));
+            }
+            m.insert(
+                "next".into(),
+                json!(
+                    "Returns presigned download URL(s) (see uri_field; invoke_operation surfaces \
+                     them as `download_urls`); fetch them directly. Binary download is out of MCP scope."
+                ),
+            );
+        }
+        AsyncJob::None => {}
+    }
+    Value::Object(m)
 }
 
 /// Compact per-param descriptors: `{name, in, required, type, format?, description?}`.
@@ -247,7 +398,7 @@ fn synth_field(element: &Value, field: &str) -> Value {
         .get("properties")
         .and_then(Value::as_object)
         .and_then(|p| p.get(field))
-        .map(|sub| synth_example(sub, 1))
+        .map(|sub| synth_example_named(sub, 1, Some(field)))
         .unwrap_or_else(|| json!("string"))
 }
 
@@ -337,6 +488,13 @@ fn type_label(node: &Value) -> String {
 /// Synthesize a structurally-valid skeleton: follow `required` chains, one array
 /// element, and use sensible placeholders by `format`. Depth-capped.
 fn synth_example(node: &Value, depth: u32) -> Value {
+    synth_example_named(node, depth, None)
+}
+
+/// Like [`synth_example`] but threads the property `name` (when known) so string
+/// placeholders can be biased by field name + description (e.g. an email-ish field
+/// with no declared `format`, or a `type` field documented as a MIME type).
+fn synth_example_named(node: &Value, depth: u32, name: Option<&str>) -> Value {
     if depth >= MAX_DEPTH {
         return Value::Null;
     }
@@ -345,7 +503,7 @@ fn synth_example(node: &Value, depth: u32) -> Value {
         if let Some(arr) = node.get(key).and_then(Value::as_array)
             && let Some(first) = arr.first()
         {
-            return synth_example(first, depth);
+            return synth_example_named(first, depth, name);
         }
     }
 
@@ -360,18 +518,24 @@ fn synth_example(node: &Value, depth: u32) -> Value {
                 .unwrap_or_default();
             let mut obj = Map::new();
             if let Some(props) = props {
-                for name in &required {
-                    if let Some(sub) = props.get(*name) {
-                        obj.insert((*name).to_string(), synth_example(sub, depth + 1));
+                for field in &required {
+                    if let Some(sub) = props.get(*field) {
+                        obj.insert(
+                            (*field).to_string(),
+                            synth_example_named(sub, depth + 1, Some(field)),
+                        );
                     } else {
-                        obj.insert((*name).to_string(), Value::Null);
+                        obj.insert((*field).to_string(), Value::Null);
                     }
                 }
             }
             Value::Object(obj)
         }
         Some("array") => {
-            let item = node.get("items").map(|it| synth_example(it, depth + 1));
+            // Array elements inherit the field name (an array of emails is still "…email").
+            let item = node
+                .get("items")
+                .map(|it| synth_example_named(it, depth + 1, name));
             match item {
                 Some(v) => Value::Array(vec![v]),
                 None => Value::Array(vec![]),
@@ -379,12 +543,17 @@ fn synth_example(node: &Value, depth: u32) -> Value {
         }
         Some("integer") | Some("number") => json!(0),
         Some("boolean") => json!(true),
-        _ => string_placeholder(node),
+        _ => string_placeholder(node, name),
     }
 }
 
-/// A placeholder for a string field, biased by `format` and `enum`.
-fn string_placeholder(node: &Value) -> Value {
+/// A placeholder for a string field. Precedence (most → least specific): `enum`
+/// (first member) → `format` → a field-name/description heuristic → `"string"`.
+/// The heuristic is intentionally LOWEST precedence and is skipped when the schema
+/// declares an explicit `pattern` (we can't guarantee a guess matches it), so a
+/// schema-driven value is never overridden — the round-trip validation tests rely
+/// on this ordering.
+fn string_placeholder(node: &Value, name: Option<&str>) -> Value {
     if let Some(first) = node
         .get("enum")
         .and_then(Value::as_array)
@@ -393,15 +562,54 @@ fn string_placeholder(node: &Value) -> Value {
         return first.clone();
     }
     let by_format = match node.get("format").and_then(Value::as_str) {
-        Some("email") => "user@example.com",
-        Some("date") => "2026-01-01",
-        Some("date-time") => "2026-01-01T00:00:00Z",
-        Some("uri") | Some("url") => "https://example.com",
-        Some("uuid") => "00000000-0000-0000-0000-000000000000",
-        _ => "string",
+        Some("email") => Some("user@example.com"),
+        Some("date") => Some("2026-01-01"),
+        Some("date-time") => Some("2026-01-01T00:00:00Z"),
+        Some("uri") | Some("url") => Some("https://example.com"),
+        Some("uuid") => Some("00000000-0000-0000-0000-000000000000"),
+        _ => None,
     };
-    // Common SendGrid email-ish fields without a declared format.
-    json!(by_format)
+    if let Some(v) = by_format {
+        return json!(v);
+    }
+    if node.get("pattern").is_none()
+        && let Some(v) = placeholder_by_hint(name, node)
+    {
+        return v;
+    }
+    json!("string")
+}
+
+/// A best-effort placeholder from a field's NAME + description keywords, for typed
+/// strings that carry no `enum`/`format`. Returns a value that is **structurally**
+/// of the field's kind (a real email syntax, a real MIME type) — not a guarantee
+/// the value is *semantically deliverable* (e.g. `user@example.com` is not a real
+/// inbox). Keep this conservative: only fire on unambiguous signals.
+fn placeholder_by_hint(name: Option<&str>, node: &Value) -> Option<Value> {
+    let name_l = name.unwrap_or("").to_ascii_lowercase();
+    let desc_l = node
+        .get("description")
+        .and_then(Value::as_str)
+        .unwrap_or("")
+        .to_ascii_lowercase();
+
+    // Email-ish field name with no declared `format: email`.
+    if name_l == "email" || name_l.ends_with("_email") || name_l.starts_with("email") {
+        return Some(json!("user@example.com"));
+    }
+    // A `type`/`*_type` field documented as a MIME / media / content type.
+    if (name_l == "type" || name_l.ends_with("_type"))
+        && (desc_l.contains("mime")
+            || desc_l.contains("media type")
+            || desc_l.contains("content type"))
+    {
+        return Some(json!("text/plain"));
+    }
+    // URL-ish field name.
+    if name_l == "url" || name_l == "uri" || name_l.ends_with("_url") || name_l.ends_with("_uri") {
+        return Some(json!("https://example.com"));
+    }
+    None
 }
 
 /// Walk the schema (depth-bounded) and surface human-readable cross-field
@@ -559,6 +767,77 @@ mod tests {
         assert!(out["request_body_schema"].is_object());
         let s = serde_json::to_string(&out).unwrap();
         assert!(s.len() > 10_000, "full schema should be large");
+    }
+
+    #[test]
+    fn content_type_placeholder_is_mime_not_literal_string() {
+        // Fix 3: content[].type is documented as a MIME type → biased to a real MIME
+        // placeholder, not the literal "string" (which is 400-bait).
+        let out = describe("sg_mail_send_SendMail", "minimal").unwrap();
+        let ty = &out["body"]["example"]["content"][0]["type"];
+        assert_eq!(
+            ty,
+            &json!("text/plain"),
+            "content[].type should be a MIME placeholder, got {ty}"
+        );
+        // And email-ish fields stay valid email syntax.
+        assert_eq!(
+            out["body"]["example"]["from"]["email"],
+            json!("user@example.com")
+        );
+    }
+
+    #[test]
+    fn minimal_includes_compact_response_field_menu() {
+        // Enh 4: a list op's minimal describe carries a response field-menu so an
+        // agent can chain calls (knows `result[]` carries `id`/`email`) cheaply.
+        let out = describe("sg_account_teammates_ListTeammate", "minimal").unwrap();
+        let resp = &out["response"];
+        assert_eq!(
+            resp["fields"]["result"],
+            json!("array<object>"),
+            "top-level result field menu: {resp}"
+        );
+        // One level into the result element — the chaining menu.
+        assert!(
+            resp["items"]["result"]["email"].is_string(),
+            "result element field menu should surface `email`: {resp}"
+        );
+        // Minimal must not embed the full response schema and must stay bounded.
+        let min = serde_json::to_string(&out).unwrap();
+        assert!(!min.contains("response_body_schema"));
+        let full =
+            serde_json::to_string(&describe("sg_account_teammates_ListTeammate", "full").unwrap())
+                .unwrap();
+        assert!(
+            min.len() < full.len(),
+            "minimal ({}) must be far smaller than full ({})",
+            min.len(),
+            full.len()
+        );
+    }
+
+    #[test]
+    fn full_includes_response_schema() {
+        let out = describe("sg_account_teammates_ListTeammate", "full").unwrap();
+        assert!(
+            out["response_body_schema"].is_object(),
+            "full should embed the resolved response schema"
+        );
+    }
+
+    #[test]
+    fn describe_surfaces_async_flow() {
+        // Enh 6: async ops carry an `async` block naming the kind + next step.
+        let poll = describe("sg_marketing_contacts_ExportContact", "minimal").unwrap();
+        assert_eq!(poll["async"]["kind"], json!("poll"));
+        assert_eq!(
+            poll["async"]["status_op"],
+            json!("sg_marketing_contacts_GetExportContact")
+        );
+        let dl = describe("sg_marketing_contacts_GetExportContact", "minimal").unwrap();
+        assert_eq!(dl["async"]["kind"], json!("external_download"));
+        assert_eq!(dl["async"]["uri_field"], json!("urls"));
     }
 
     #[test]
