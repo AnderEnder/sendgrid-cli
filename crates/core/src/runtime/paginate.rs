@@ -23,6 +23,9 @@ pub(crate) enum PaginateOutcome {
         last_status: u16,
         /// Continuation hint when stopped at a cap (else `None`).
         next: Option<Value>,
+        /// A one-shot warning when a page's result array could not be located
+        /// (the engine collected nothing rather than wrapping the envelope).
+        warning: Option<String>,
     },
     /// A page returned a non-2xx status — stop and surface it verbatim.
     HttpError { status: u16, body: Value },
@@ -62,6 +65,8 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
 
     let mut items: Vec<Value> = Vec::new();
     let mut pages = 0usize;
+    // Set at most once: a page whose result array could not be located at all.
+    let mut extract_warning: Option<String> = None;
 
     loop {
         // Inject the current cursor/offset/page into the query bucket.
@@ -99,7 +104,23 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
             };
         }
 
-        let page_items = extract_items(&resp.body, op.pagination.data_key.as_deref());
+        // Locate the page's result array. `None` = no array key matched at all →
+        // collect nothing for this page and emit a single visible warning (never
+        // silently wrap the whole envelope as one item). An empty array is `Some`.
+        let data_key = op.pagination.data_key.as_deref();
+        let page_items = match extract_items(&resp.body, data_key) {
+            Some(arr) => arr,
+            None => {
+                if extract_warning.is_none() {
+                    extract_warning = Some(format!(
+                        "--all: could not locate a result array (data_key={:?}) in a page of \
+                         `{}`; collected 0 items for it — the response shape may have changed",
+                        data_key, op.id
+                    ));
+                }
+                Vec::new()
+            }
+        };
         let page_len = page_items.len();
         items.extend(page_items);
         pages += 1;
@@ -107,11 +128,21 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
         // Caps: stop with a continuation hint.
         if items.len() >= max_items || pages >= max_pages {
             truncate(&mut items, max_items);
-            let next = next_hint(kind, inject, offset, limit, page, &resp.body, cursor_path);
+            let next = next_hint(
+                kind,
+                inject,
+                offset,
+                limit,
+                page,
+                &resp.body,
+                cursor_path,
+                data_key,
+            );
             return PaginateOutcome::Collected {
                 items,
                 last_status,
                 next,
+                warning: extract_warning,
             };
         }
 
@@ -146,34 +177,35 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
                 items,
                 last_status,
                 next: None,
+                warning: extract_warning,
             };
         }
     }
 }
 
-/// Extract the result array from a page body: the op's `data_key` if known, else
-/// a small set of common envelope keys, else the body itself if it is an array.
-fn extract_items(body: &Value, data_key: Option<&str>) -> Vec<Value> {
-    if let Some(key) = data_key
-        && let Some(arr) = body.get(key).and_then(Value::as_array)
-    {
-        return arr.clone();
+/// Extract the result array from a page body. When `data_key` is known it is
+/// authoritative (no fallback); otherwise try a small set of common envelope keys,
+/// then a bare top-level array. Returns `None` when NO array could be located — the
+/// caller then collects nothing + warns, rather than wrapping the whole page
+/// envelope as one bogus "item" (the old silent under-fetch). An empty result array
+/// is `Some(vec![])` (a legitimate last page → clean termination).
+fn extract_items(body: &Value, data_key: Option<&str>) -> Option<Vec<Value>> {
+    if let Some(key) = data_key {
+        return body.get(key).and_then(Value::as_array).cloned();
     }
     for key in ["result", "results", "contacts", "data"] {
         if let Some(arr) = body.get(key).and_then(Value::as_array) {
-            return arr.clone();
+            return Some(arr.clone());
         }
     }
-    if let Some(arr) = body.as_array() {
-        return arr.clone();
-    }
-    // Single-object page: treat as one item so nothing is silently dropped.
-    vec![body.clone()]
+    body.as_array().cloned()
 }
 
 fn last_record_id(body: &Value, data_key: Option<&str>) -> Option<String> {
-    let items = extract_items(body, data_key);
-    items.last().and_then(|v| v.get("id")).map(value_to_string)
+    extract_items(body, data_key)?
+        .last()
+        .and_then(|v| v.get("id"))
+        .map(value_to_string)
 }
 
 /// Parse the `page_token` (or named param) out of the `_metadata.next` URL.
@@ -190,6 +222,7 @@ fn extract_page_token(body: &Value, param: &str) -> Option<String> {
     None
 }
 
+#[allow(clippy::too_many_arguments)]
 fn next_hint(
     kind: PaginationKind,
     inject: Option<&str>,
@@ -198,6 +231,7 @@ fn next_hint(
     page: u64,
     body: &Value,
     cursor_path: Option<&str>,
+    data_key: Option<&str>,
 ) -> Option<Value> {
     let mut hint = Map::new();
     match kind {
@@ -219,7 +253,7 @@ fn next_hint(
             hint.insert(inject.unwrap_or("after_key").to_string(), tok);
         }
         PaginationKind::CursorRecord => {
-            let tok = last_record_id(body, None)?;
+            let tok = last_record_id(body, data_key)?;
             hint.insert(
                 inject.unwrap_or("after_subuser_id").to_string(),
                 Value::from(tok),
@@ -301,12 +335,33 @@ mod tests {
 
     #[test]
     fn extract_items_prefers_data_key_then_common() {
-        assert_eq!(extract_items(&json!({"result":[1,2]}), None).len(), 2);
-        assert_eq!(extract_items(&json!({"contacts":[1]}), None).len(), 1);
         assert_eq!(
-            extract_items(&json!({"things":[1,2,3]}), Some("things")).len(),
+            extract_items(&json!({"result":[1,2]}), None).unwrap().len(),
+            2
+        );
+        assert_eq!(
+            extract_items(&json!({"contacts":[1]}), None).unwrap().len(),
+            1
+        );
+        assert_eq!(
+            extract_items(&json!({"things":[1,2,3]}), Some("things"))
+                .unwrap()
+                .len(),
             3
         );
-        assert_eq!(extract_items(&json!([9, 8]), None).len(), 2);
+        assert_eq!(extract_items(&json!([9, 8]), None).unwrap().len(), 2);
+    }
+
+    #[test]
+    fn extract_items_data_key_is_authoritative_and_empty_is_some() {
+        // data_key set + present empty array → Some(vec![]) (clean termination).
+        assert_eq!(
+            extract_items(&json!({"stats":[]}), Some("stats")),
+            Some(vec![])
+        );
+        // data_key set but the key is absent → None (no silent envelope-wrap).
+        assert_eq!(extract_items(&json!({"date":"2026"}), Some("stats")), None);
+        // No data_key and no known array key anywhere → None (warn, collect nothing).
+        assert_eq!(extract_items(&json!({"foo":{"bar":1}}), None), None);
     }
 }

@@ -14,6 +14,7 @@ pub use registry::Registry;
 // The frozen runtime entrypoint + its contract types, re-exported at the crate
 // root for ergonomic consumption by the CLI/MCP crates.
 pub use runtime::{
-    ApiKey, AuthError, DispatchError, DispatchResponse, ExecuteResult, OperationDispatcher,
-    Payload, Policy, Region, ReqwestDispatcher, RuntimeConfig, execute, execute_with,
+    ApiKey, AuthError, DispatchError, DispatchResponse, ExecuteResult, JobError,
+    OperationDispatcher, Payload, Policy, PollConfig, Region, ReqwestDispatcher, RuntimeConfig,
+    await_job, execute, execute_with, external_download, external_upload,
 };

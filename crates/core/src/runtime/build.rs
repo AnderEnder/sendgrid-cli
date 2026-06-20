@@ -274,4 +274,50 @@ mod tests {
         assert_eq!(percent_encode_path("a b/c"), "a%20b%2Fc");
         assert_eq!(percent_encode_path("HkJ5-_.~"), "HkJ5-_.~");
     }
+
+    // ALL 391 ops build directly (validation bypassed: build_request never runs the
+    // body schema). Synthesize a dummy per path param + an empty body. Asserts no
+    // BuildError and no unsubstituted `{` in any URL — the literal "391/391 build"
+    // claim, exercising the 118 body ops the execute()+dry_run harness misses.
+    #[test]
+    fn all_391_ops_build_directly_no_unsubstituted_path() {
+        use crate::Registry;
+        let client = crate::runtime::http::shared_client();
+        let key = ApiKey::new(
+            "SG.0123456789abcdefghABCD.0123456789abcdefghABCDEFGHIJKLMNOPqrstuvwxyz123",
+        );
+        let mut failures = Vec::new();
+        let r = Registry::global();
+        for op in r.operations() {
+            let mut path = Map::new();
+            for p in &op.params {
+                if p.location == Location::Path {
+                    path.insert(p.name.clone(), Value::String("SYNTH".into()));
+                }
+            }
+            let mut envelope = Map::new();
+            envelope.insert("path".into(), Value::Object(path));
+            if op.has_body {
+                // A trivial body so the pass-through has something to serialize.
+                envelope.insert("body".into(), serde_json::json!({}));
+            }
+            let args = Value::Object(envelope);
+            match build_request(client, op, &args, &key, "https://api.sendgrid.com", None) {
+                Ok(built) => {
+                    let url = built.request.url().as_str();
+                    if url.contains('{') {
+                        failures.push(format!("{}: unsubstituted '{{' in {url}", op.id));
+                    }
+                }
+                Err(e) => failures.push(format!("{}: {e}", op.id)),
+            }
+        }
+        assert_eq!(r.operations().len(), 391);
+        assert!(
+            failures.is_empty(),
+            "{} build failures:\n{}",
+            failures.len(),
+            failures.join("\n")
+        );
+    }
 }

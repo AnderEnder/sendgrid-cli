@@ -1,0 +1,49 @@
+# Cross-field constraints — spec-prose rules JSON Schema can't encode.
+#
+# These are the "valid-locally-but-400-remotely" gaps (review-agent-ux F1 /
+# review-robustness F3): the SendMail body validates against the schema yet the
+# API rejects it because a rule lives only in human documentation.
+#
+# Each entry targets an op by its canonical `namespace.OperationId` key and names
+# a rule from the vocabulary below. Field names address **top-level body
+# properties** (verified against the op's real body schema at codegen — a typo is
+# a hard build error). Matching treats null / "" / [] as ABSENT.
+#
+# Vocabulary (maps to ir::Constraint):
+#   requires_one_of        fields=[...]              -> at least one must be present
+#   mutually_exclusive     fields=[...]              -> at most one may be present
+#   required_unless_present field=X unless_present=Y -> X required unless Y present
+#       (optional or_each_in=ARR -> also satisfied when X is present in EVERY
+#        element of the array body field ARR, e.g. per-personalization subject)
+#
+# Enforced in runtime/validate.rs AFTER JSON-Schema validation, with
+# JSON-pointer-style, agent-actionable messages.
+
+# --- mail/send SendMail (POST /v3/mail/send) ---------------------------------
+# The mail object's top `required` is only ["personalizations","from"]; the rest
+# of the contract is prose.
+
+# Must carry message content one way or the other.
+[[constraint]]
+op = "mail.SendMail"
+rule = "requires_one_of"
+fields = ["content", "template_id"]
+message = "provide message body via `content` or a `template_id` (at least one is required)"
+
+# `reply_to` and `reply_to_list` are mutually exclusive (the API rejects both).
+[[constraint]]
+op = "mail.SendMail"
+rule = "mutually_exclusive"
+fields = ["reply_to", "reply_to_list"]
+message = "set `reply_to` OR `reply_to_list`, not both"
+
+# A top-level `subject` is required unless a (dynamic) template supplies it OR
+# every personalization carries its own `subject` (the normal batch-send pattern —
+# without `or_each_in` this rule would wrongly reject a valid batch send).
+[[constraint]]
+op = "mail.SendMail"
+rule = "required_unless_present"
+field = "subject"
+unless_present = "template_id"
+or_each_in = "personalizations"
+message = "`subject` is required unless a `template_id` is provided or every personalization sets its own `subject`"

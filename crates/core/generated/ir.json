@@ -179,6 +179,7 @@
     "namespace": "account_provisioning",
     "operation_id": "ListAccount",
     "pagination": {
+      "data_key": "accounts",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -1008,6 +1009,7 @@
     "namespace": "subusers",
     "operation_id": "ListMonthlyStat",
     "pagination": {
+      "data_key": "stats",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -1197,6 +1199,7 @@
     "namespace": "subusers",
     "operation_id": "ListStatSum",
     "pagination": {
+      "data_key": "stats",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -1349,6 +1352,7 @@
     "namespace": "subusers",
     "operation_id": "ListSubuserMonthlyStat",
     "pagination": {
+      "data_key": "stats",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -1880,6 +1884,7 @@
     "namespace": "teammates",
     "operation_id": "ListSubuserByTemplate",
     "pagination": {
+      "data_key": "subuser_access",
       "inject_param": "after_subuser_id",
       "kind": "cursor_record"
     },
@@ -1941,6 +1946,7 @@
     "namespace": "teammates",
     "operation_id": "ListTeammate",
     "pagination": {
+      "data_key": "result",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -3698,7 +3704,7 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "fire_and_forget",
     "body_is_array": false,
     "body_schema_id": "recipients_data_erasure.RecipientsDataErasureEraseRecipientsRequest",
     "cli_path": [
@@ -3950,6 +3956,7 @@
     "namespace": "ip_access_management",
     "operation_id": "ListAccessActivity",
     "pagination": {
+      "data_key": "result",
       "kind": "capped_single"
     },
     "params": [
@@ -4946,6 +4953,7 @@
     "operation_id": "ListIp",
     "pagination": {
       "cursor_path": "_metadata.next_params.after_key",
+      "data_key": "result",
       "inject_param": "after_key",
       "kind": "cursor_key"
     },
@@ -5068,6 +5076,7 @@
     "operation_id": "ListIpAssignedToIpPool",
     "pagination": {
       "cursor_path": "_metadata.next_params.after_key",
+      "data_key": "result",
       "inject_param": "after_key",
       "kind": "cursor_key"
     },
@@ -5131,6 +5140,7 @@
     "operation_id": "ListIpPool",
     "pagination": {
       "cursor_path": "_metadata.next_params.after_key",
+      "data_key": "result",
       "inject_param": "after_key",
       "kind": "cursor_key"
     },
@@ -5204,6 +5214,7 @@
     "operation_id": "ListSubUserAssignedToIp",
     "pagination": {
       "cursor_path": "_metadata.next_params.after_key",
+      "data_key": "result",
       "inject_param": "after_key",
       "kind": "cursor_key"
     },
@@ -5396,6 +5407,7 @@
     "namespace": "ip_provisioning",
     "operation_id": "ListAccountIps",
     "pagination": {
+      "data_key": "result",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -6083,6 +6095,7 @@
     "namespace": "lmc_campaigns",
     "operation_id": "ListCampaign",
     "pagination": {
+      "data_key": "result",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -7553,6 +7566,7 @@
     "namespace": "lmc_contactdb",
     "operation_id": "ListRecipient",
     "pagination": {
+      "data_key": "recipients",
       "inject_param": "page",
       "kind": "page_number"
     },
@@ -7649,6 +7663,7 @@
     "namespace": "lmc_contactdb",
     "operation_id": "ListRecipientForSegment",
     "pagination": {
+      "data_key": "recipients",
       "inject_param": "page",
       "kind": "page_number"
     },
@@ -7712,6 +7727,7 @@
     "namespace": "lmc_contactdb",
     "operation_id": "ListRecipientsFromContactDbList",
     "pagination": {
+      "data_key": "recipients",
       "inject_param": "page",
       "kind": "page_number"
     },
@@ -8708,6 +8724,31 @@
       "send",
       "mail"
     ],
+    "constraints": [
+      {
+        "fields": [
+          "content",
+          "template_id"
+        ],
+        "message": "provide message body via `content` or a `template_id` (at least one is required)",
+        "rule": "requires_one_of"
+      },
+      {
+        "fields": [
+          "reply_to",
+          "reply_to_list"
+        ],
+        "message": "set `reply_to` OR `reply_to_list`, not both",
+        "rule": "mutually_exclusive"
+      },
+      {
+        "field": "subject",
+        "message": "`subject` is required unless a `template_id` is provided or every personalization sets its own `subject`",
+        "or_each_in": "personalizations",
+        "rule": "required_unless_present",
+        "unless_present": "template_id"
+      }
+    ],
     "domain": "mail",
     "has_body": true,
     "hidden": false,
@@ -8882,7 +8923,8 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "poll",
+    "async_status_op": "sg_marketing_contacts_GetExportContact",
     "body_is_array": false,
     "body_schema_id": "mc_contacts.ExportContact",
     "cli_path": [
@@ -9004,7 +9046,8 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "external_download",
+    "async_uri_field": "urls",
     "body_is_array": false,
     "cli_path": [
       "marketing",
@@ -9082,7 +9125,9 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "external_upload",
+    "async_status_op": "sg_marketing_contacts_GetImportContact",
+    "async_uri_field": "upload_uri",
     "body_is_array": false,
     "body_schema_id": "mc_contacts.ImportContact",
     "cli_path": [
@@ -9634,6 +9679,7 @@
     "namespace": "mc_designs",
     "operation_id": "ListDesign",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -9690,6 +9736,7 @@
     "namespace": "mc_designs",
     "operation_id": "ListPreBuiltDesign",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -10366,6 +10413,7 @@
     "namespace": "mc_lists",
     "operation_id": "ListMarketingList",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11146,6 +11194,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": false,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "secret_request_fields": [
       "client_secret",
       "oauth_client_secret",
@@ -11191,6 +11247,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "destructive",
     "subgroup": "singlesends",
     "summary": "Delete Single Send Schedule",
@@ -11230,6 +11294,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "destructive",
     "subgroup": "singlesends",
     "summary": "Delete Single Send by ID",
@@ -11273,6 +11345,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "destructive",
     "subgroup": "singlesends",
     "summary": "Bulk Delete Single Sends",
@@ -11313,6 +11393,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": false,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "secret_request_fields": [
       "client_secret",
       "oauth_client_secret",
@@ -11357,6 +11445,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "read",
     "subgroup": "singlesends",
     "summary": "Get Single Send by ID",
@@ -11388,6 +11484,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "read",
     "subgroup": "singlesends",
     "summary": "Get All Categories",
@@ -11413,6 +11517,7 @@
     "namespace": "mc_singlesends",
     "operation_id": "ListSingleSend",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11434,6 +11539,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "side_effect": "read",
     "subgroup": "singlesends",
     "summary": "Get All Single Sends",
@@ -11474,6 +11587,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "secret_request_fields": [
       "client_secret",
       "oauth_client_secret",
@@ -11505,6 +11626,7 @@
     "namespace": "mc_singlesends",
     "operation_id": "SearchSingleSend",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11526,6 +11648,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": true,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "secret_request_fields": [
       "client_secret",
       "oauth_client_secret",
@@ -11571,6 +11701,14 @@
     "region_global_only": true,
     "retry_safe_429": true,
     "retry_safe_5xx": false,
+    "search_keywords": [
+      "campaign",
+      "campaigns",
+      "newsletter",
+      "broadcast",
+      "blast",
+      "bulk email"
+    ],
     "secret_request_fields": [
       "client_secret",
       "oauth_client_secret",
@@ -11702,6 +11840,7 @@
     "namespace": "mc_stats",
     "operation_id": "GetAutomationStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11808,6 +11947,7 @@
     "namespace": "mc_stats",
     "operation_id": "GetSingleSendStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11903,6 +12043,7 @@
     "namespace": "mc_stats",
     "operation_id": "ListAutomationStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -11962,6 +12103,7 @@
     "namespace": "mc_stats",
     "operation_id": "ListClickTrackingStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -12039,6 +12181,7 @@
     "namespace": "mc_stats",
     "operation_id": "ListSingleSendStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -12099,6 +12242,7 @@
     "namespace": "mc_stats",
     "operation_id": "ListSingleSendTrackingStat",
     "pagination": {
+      "data_key": "results",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -12320,6 +12464,7 @@
     "namespace": "api_keys",
     "operation_id": "ListApiKey",
     "pagination": {
+      "data_key": "result",
       "kind": "capped_single"
     },
     "params": [
@@ -12589,6 +12734,7 @@
     "namespace": "verified_senders",
     "operation_id": "ListVerifiedSender",
     "pagination": {
+      "data_key": "results",
       "kind": "capped_single"
     },
     "params": [
@@ -13348,6 +13494,7 @@
     "namespace": "mail_settings",
     "operation_id": "ListMailSetting",
     "pagination": {
+      "data_key": "result",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -13716,6 +13863,7 @@
     "namespace": "partner",
     "operation_id": "ListPartnerSetting",
     "pagination": {
+      "data_key": "result",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -14148,7 +14296,8 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "external_download",
+    "async_uri_field": "presigned_url",
     "body_is_array": false,
     "cli_path": [
       "stats",
@@ -14243,6 +14392,7 @@
     "namespace": "email_activity",
     "operation_id": "ListMessage",
     "pagination": {
+      "data_key": "messages",
       "kind": "capped_single"
     },
     "params": [
@@ -14273,7 +14423,8 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "poll",
+    "async_status_op": "sg_stats_activity_DownloadCsv",
     "body_is_array": false,
     "cli_path": [
       "stats",
@@ -14733,6 +14884,7 @@
     "namespace": "stats",
     "operation_id": "ListCategoryStatSum",
     "pagination": {
+      "data_key": "stats",
       "inject_param": "offset",
       "kind": "offset"
     },
@@ -17448,6 +17600,7 @@
     "namespace": "templates",
     "operation_id": "ListTemplate",
     "pagination": {
+      "data_key": "result",
       "inject_param": "page_token",
       "kind": "page_token"
     },
@@ -17679,7 +17832,9 @@
     ]
   },
   {
-    "async_job": "none",
+    "async_job": "external_upload",
+    "async_status_op": "sg_validation_email_GetEmailJobForVerification",
+    "async_uri_field": "upload_uri",
     "body_is_array": false,
     "body_schema_id": "email_validation.ListEmailJobForVerification",
     "cli_path": [

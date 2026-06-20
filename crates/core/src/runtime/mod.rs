@@ -21,6 +21,7 @@ pub mod coerce;
 pub mod dispatch;
 pub mod envelope;
 pub mod http;
+pub mod jobs;
 pub mod paginate;
 pub mod region;
 pub mod retry;
@@ -34,6 +35,7 @@ use serde_json::{Map, Value};
 pub use auth::{ApiKey, AuthError};
 pub use dispatch::{DispatchError, DispatchResponse, OperationDispatcher, ReqwestDispatcher};
 pub use envelope::{ExecuteResult, Payload};
+pub use jobs::{JobError, PollConfig, await_job, external_download, external_upload};
 pub use region::Region;
 pub use retry::RetryConfig;
 pub use safety::{Policy, SafetyDenial};
@@ -267,15 +269,18 @@ async fn run_paginated<D: OperationDispatcher>(
             mut items,
             next,
             last_status,
+            warning,
         } => {
             // Field-redact secret response fields across every accumulated item.
             for item in items.iter_mut() {
                 safety::redact_response(op, item);
             }
             let status = if last_status == 0 { 200 } else { last_status };
+            let mut all_warnings = warnings;
+            all_warnings.extend(warning);
             ExecuteResult::success(status, se, Value::Array(items))
                 .with_next(next)
-                .with_warnings(warnings)
+                .with_warnings(all_warnings)
         }
         PaginateOutcome::HttpError { status, mut body } => {
             safety::redact_response(op, &mut body);
@@ -290,12 +295,24 @@ async fn run_paginated<D: OperationDispatcher>(
 
 /// Map a single dispatched response into an envelope, redacting secret response
 /// fields on success and passing the SendGrid error body verbatim otherwise.
+///
+/// Special case (M6): a documented 3xx whose `Location` header IS the payload (the
+/// SSO `AuthenticateAccount` op, whose only success response is `303`). The client
+/// never follows redirects, so we surface the target as `data = {"location": ...}`
+/// at the 3xx status — otherwise the entire output of that op is dropped.
 fn map_response(op: &OperationIr, resp: DispatchResponse) -> ExecuteResult {
     let status = resp.status.as_u16();
     let mut body = resp.body;
     if resp.status.is_success() {
         safety::redact_response(op, &mut body);
         ExecuteResult::success(status, op.side_effect, body)
+    } else if resp.status.is_redirection()
+        && let Some(location) = resp
+            .headers
+            .get(::http::header::LOCATION)
+            .and_then(|v| v.to_str().ok())
+    {
+        ExecuteResult::redirect(status, op.side_effect, location.to_string())
     } else {
         // Verbatim SendGrid error body (still field-redacted in case an error
         // payload echoes a secret field).

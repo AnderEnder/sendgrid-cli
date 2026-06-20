@@ -38,6 +38,11 @@ pub struct RawOp {
     pub summary: Option<String>,
     pub params: Vec<ParamIr>,
     pub request_body: Option<RawBody>,
+    /// The raw JSON schema node of the chosen success (2xx) response body, if any
+    /// (preferring 200, then 201, then 202, then the first 2xx). May be a `$ref`;
+    /// resolution happens in [`crate::build`]. Drives `pagination.data_key`
+    /// derivation + async `uri_field` verification.
+    pub response_2xx: Option<Value>,
 }
 
 /// The request body, located but not yet resolved/normalized.
@@ -105,6 +110,38 @@ fn schema_type(root: &Value, schema: &Value, stats: &mut Stats) -> (String, Opti
         None
     };
     (ty, item_ty)
+}
+
+/// Pick the success (2xx) response's `application/json` schema node, preferring
+/// `200`, then `201`, then `202`, then the lowest other 2xx code. Returns the raw
+/// node (possibly a `$ref`); `None` when there is no JSON success body.
+fn success_response_schema(op: &Value) -> Option<Value> {
+    let responses = op.get("responses").and_then(Value::as_object)?;
+    let schema_for = |code: &str| -> Option<Value> {
+        responses
+            .get(code)
+            .and_then(|r| r.get("content"))
+            .and_then(|c| c.get("application/json"))
+            .and_then(|m| m.get("schema"))
+            .cloned()
+    };
+    for code in ["200", "201", "202"] {
+        if let Some(s) = schema_for(code) {
+            return Some(s);
+        }
+    }
+    // Any other 2xx (e.g. 204 carries no schema; deterministic by lowest code).
+    let mut twoxx: Vec<&String> = responses
+        .keys()
+        .filter(|k| k.starts_with('2'))
+        .collect::<Vec<_>>();
+    twoxx.sort();
+    for code in twoxx {
+        if let Some(s) = schema_for(code) {
+            return Some(s);
+        }
+    }
+    None
 }
 
 fn parse_location(s: &str) -> Result<Location> {
@@ -244,6 +281,10 @@ pub fn parse_spec_file(path: &Path, stats: &mut Stats) -> Result<SpecFile> {
                 .and_then(Value::as_str)
                 .map(str::to_string);
 
+            // Success (2xx) response JSON schema node, for data_key derivation +
+            // async uri_field verification. Preference: 200, 201, 202, then any 2xx.
+            let response_2xx = success_response_schema(op);
+
             ops.push(RawOp {
                 operation_id,
                 method: method.to_uppercase(),
@@ -252,6 +293,7 @@ pub fn parse_spec_file(path: &Path, stats: &mut Stats) -> Result<SpecFile> {
                 summary,
                 params,
                 request_body,
+                response_2xx,
             });
         }
     }

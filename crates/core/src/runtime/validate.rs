@@ -1,13 +1,16 @@
 //! Pre-flight validation: required-param presence (per location) + JSON-Schema
-//! 2020-12 body validation against the embedded schema (`registry.schema_for`).
+//! 2020-12 body validation against the embedded schema (`registry.schema_for`) +
+//! cross-field [`Constraint`] enforcement (the spec-prose rules JSON Schema can't
+//! express, from `data/constraints.toml`).
 //!
 //! Errors are **agent-actionable**: each carries a JSON-pointer-style `pointer`
 //! into the offending location plus a precise message.
 //!
-//! Cross-field `constraints.toml` validation is **P4** — a hook is left
-//! ([`ValidationReport`] is additive), but no cross-field rules run here.
+//! Order: required params → body schema → cross-field constraints. Constraints run
+//! AFTER schema validation and only inspect the body; all issues are collected (no
+//! early stop), so an agent sees everything wrong in one pass.
 
-use crate::ir::{Location, OperationIr};
+use crate::ir::{Constraint, Location, OperationIr};
 use crate::registry::Registry;
 use jsonschema::{Draft, JSONSchema};
 use serde::Serialize;
@@ -110,7 +113,89 @@ pub fn validate(registry: &Registry, op: &OperationIr, args: &Value) -> Validati
         }
     }
 
+    // 3. Cross-field constraints (spec-prose rules; the API would otherwise 400).
+    if !op.constraints().is_empty() {
+        let body = args
+            .get("body")
+            .cloned()
+            .unwrap_or_else(|| Value::Object(Map::new()));
+        check_constraints(op, &body, &mut report);
+    }
+
     report
+}
+
+/// A body field counts as **present** only when it is a non-`null`, non-empty value
+/// (`""` and `[]` are absent — they wouldn't satisfy the API either).
+fn is_present(body: &Value, field: &str) -> bool {
+    match body.get(field) {
+        None | Some(Value::Null) => false,
+        Some(Value::String(s)) => !s.is_empty(),
+        Some(Value::Array(a)) => !a.is_empty(),
+        Some(_) => true,
+    }
+}
+
+/// True when `array_field` is a non-empty array AND every element has `field`
+/// present (the per-item escape hatch, e.g. each personalization has its own
+/// `subject`).
+fn present_in_each(body: &Value, array_field: &str, field: &str) -> bool {
+    match body.get(array_field).and_then(Value::as_array) {
+        Some(arr) if !arr.is_empty() => arr.iter().all(|el| is_present(el, field)),
+        _ => false,
+    }
+}
+
+/// Enforce the op's cross-field [`Constraint`]s against the body, appending an
+/// actionable issue per violation.
+fn check_constraints(op: &OperationIr, body: &Value, report: &mut ValidationReport) {
+    for c in op.constraints() {
+        match c {
+            Constraint::RequiresOneOf { fields, message } => {
+                if !fields.iter().any(|f| is_present(body, f)) {
+                    report.issues.push(ValidationIssue {
+                        pointer: "body".to_string(),
+                        message: message
+                            .clone()
+                            .unwrap_or_else(|| format!("at least one of {fields:?} is required")),
+                    });
+                }
+            }
+            Constraint::MutuallyExclusive { fields, message } => {
+                let present: Vec<&String> = fields.iter().filter(|f| is_present(body, f)).collect();
+                if present.len() > 1 {
+                    report.issues.push(ValidationIssue {
+                        pointer: format!("body/{}", present[1]),
+                        message: message.clone().unwrap_or_else(|| {
+                            format!("at most one of {fields:?} may be set (found {present:?})")
+                        }),
+                    });
+                }
+            }
+            Constraint::RequiredUnlessPresent {
+                field,
+                unless_present,
+                or_each_in,
+                message,
+            } => {
+                // Satisfied by: top-level `field`, OR `unless_present`, OR (when
+                // `or_each_in` is set) `field` present in every element of that array.
+                let satisfied = is_present(body, field)
+                    || is_present(body, unless_present)
+                    || or_each_in
+                        .as_deref()
+                        .is_some_and(|arr| present_in_each(body, arr, field));
+                if !satisfied {
+                    report.issues.push(ValidationIssue {
+                        pointer: format!("body/{field}"),
+                        message: message.clone().unwrap_or_else(|| {
+                            format!("`{field}` is required unless `{unless_present}` is present")
+                        }),
+                    });
+                }
+            }
+        }
+    }
 }
 
 /// Compile a schema as Draft 2020-12 (the normalized dialect of the embedded
@@ -156,6 +241,122 @@ mod tests {
         });
         let report = validate(r, op, &args);
         assert!(report.is_ok(), "expected valid, got {:?}", report.issues);
+    }
+
+    #[test]
+    fn sendmail_without_content_or_template_is_rejected_locally() {
+        // M1: a body that PASSES the JSON schema (has from + personalizations[].to
+        // + subject) but violates the prose rule "content OR template_id required".
+        let r = Registry::global();
+        let op = r.by_id("sg_mail_send_SendMail").expect("op");
+        let args = json!({
+            "body": {
+                "from": { "email": "s@example.com" },
+                "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
+                "subject": "hi"
+                // no content, no template_id
+            }
+        });
+        let report = validate(r, op, &args);
+        assert!(!report.is_ok(), "expected a constraint rejection");
+        let msg = report
+            .issues
+            .iter()
+            .find(|i| i.message.contains("content") && i.message.contains("template_id"))
+            .unwrap_or_else(|| panic!("no content/template_id issue: {:?}", report.issues));
+        assert_eq!(msg.pointer, "body");
+    }
+
+    #[test]
+    fn sendmail_reply_to_and_reply_to_list_are_mutually_exclusive() {
+        let r = Registry::global();
+        let op = r.by_id("sg_mail_send_SendMail").expect("op");
+        let args = json!({
+            "body": {
+                "from": { "email": "s@example.com" },
+                "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
+                "subject": "hi",
+                "content": [ { "type": "text/plain", "value": "hello" } ],
+                "reply_to": { "email": "a@example.com" },
+                "reply_to_list": [ { "email": "b@example.com" } ]
+            }
+        });
+        let report = validate(r, op, &args);
+        assert!(!report.is_ok());
+        assert!(
+            report
+                .issues
+                .iter()
+                .any(|i| i.pointer == "body/reply_to_list"),
+            "expected a mutually-exclusive issue, got {:?}",
+            report.issues
+        );
+    }
+
+    #[test]
+    fn sendmail_with_template_id_but_no_subject_passes() {
+        // required_unless_present: subject omitted is fine when a template supplies it.
+        let r = Registry::global();
+        let op = r.by_id("sg_mail_send_SendMail").expect("op");
+        let args = json!({
+            "body": {
+                "from": { "email": "s@example.com" },
+                "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
+                "template_id": "d-abc123"
+            }
+        });
+        let report = validate(r, op, &args);
+        assert!(report.is_ok(), "expected valid, got {:?}", report.issues);
+    }
+
+    #[test]
+    fn sendmail_batch_with_per_personalization_subject_passes() {
+        // or_each_in: a valid batch send with NO top-level subject + NO template,
+        // where every personalization carries its own subject, MUST pass (else M1
+        // would create a new invalid-locally/valid-remotely false positive).
+        let r = Registry::global();
+        let op = r.by_id("sg_mail_send_SendMail").expect("op");
+        let args = json!({
+            "body": {
+                "from": { "email": "s@example.com" },
+                "personalizations": [
+                    { "to": [ { "email": "a@example.net" } ], "subject": "Invoice A" },
+                    { "to": [ { "email": "b@example.net" } ], "subject": "Invoice B" }
+                ],
+                "content": [ { "type": "text/plain", "value": "hi" } ]
+            }
+        });
+        let report = validate(r, op, &args);
+        assert!(
+            report.is_ok(),
+            "valid batch send rejected: {:?}",
+            report.issues
+        );
+    }
+
+    #[test]
+    fn sendmail_subject_rule_still_fires_when_a_personalization_lacks_subject() {
+        // The escape hatch is "EVERY personalization has subject" — a mix (one
+        // missing) with no top-level subject / template is still rejected.
+        let r = Registry::global();
+        let op = r.by_id("sg_mail_send_SendMail").expect("op");
+        let args = json!({
+            "body": {
+                "from": { "email": "s@example.com" },
+                "personalizations": [
+                    { "to": [ { "email": "a@example.net" } ], "subject": "has one" },
+                    { "to": [ { "email": "b@example.net" } ] }
+                ],
+                "content": [ { "type": "text/plain", "value": "hi" } ]
+            }
+        });
+        let report = validate(r, op, &args);
+        assert!(!report.is_ok(), "expected a subject rejection");
+        assert!(
+            report.issues.iter().any(|i| i.pointer == "body/subject"),
+            "expected body/subject issue, got {:?}",
+            report.issues
+        );
     }
 
     #[test]

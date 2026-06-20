@@ -7,11 +7,11 @@
 
 use crate::schema;
 use crate::specs::{SpecFile, Stats};
-use crate::tables::Tables;
+use crate::tables::{ConstraintEntry, Tables};
 use anyhow::{Result, bail};
 use sendgrid_core::ir::{
-    BulkLocation, BulkTrigger, Location, OperationIr, Pagination, PaginationKind, ParamIr,
-    SideEffect,
+    AsyncJob, BulkLocation, BulkTrigger, Constraint, Location, OperationIr, Pagination,
+    PaginationKind, ParamIr, SideEffect,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -133,6 +133,135 @@ fn derive_pagination(query_names: &[String]) -> Pagination {
     p
 }
 
+/// Follow a `$ref` chain (cycle-guarded) to the concrete node it points at.
+fn deref_node<'a>(root: &'a Value, node: &'a Value, seen: &mut Vec<String>) -> Option<&'a Value> {
+    if let Some(r) = node.get("$ref").and_then(Value::as_str) {
+        if seen.iter().any(|s| s == r) {
+            return None; // cycle — give up
+        }
+        seen.push(r.to_string());
+        let target = r.strip_prefix('#').and_then(|p| root.pointer(p))?;
+        return deref_node(root, target, seen);
+    }
+    Some(node)
+}
+
+/// Collect the TOP-LEVEL properties of a (possibly `$ref`/`allOf`) object schema,
+/// shallowly — enough to detect the result-array key and verify async uri fields.
+/// No deep resolution, no build-stats pollution.
+fn response_top_props(root: &Value, node: &Value) -> BTreeMap<String, Value> {
+    fn walk(root: &Value, node: &Value, out: &mut BTreeMap<String, Value>, seen: &mut Vec<String>) {
+        let Some(resolved) = deref_node(root, node, seen) else {
+            return;
+        };
+        if let Some(props) = resolved.get("properties").and_then(Value::as_object) {
+            for (k, v) in props {
+                out.entry(k.clone()).or_insert_with(|| v.clone());
+            }
+        }
+        if let Some(all_of) = resolved.get("allOf").and_then(Value::as_array) {
+            for sub in all_of {
+                walk(root, sub, out, seen);
+            }
+        }
+    }
+    let mut out = BTreeMap::new();
+    walk(root, node, &mut out, &mut Vec::new());
+    out
+}
+
+/// True when a (possibly `$ref`-ed) property schema's type is `array`.
+fn prop_is_array(root: &Value, prop: &Value) -> bool {
+    let resolved = deref_node(root, prop, &mut Vec::new()).unwrap_or(prop);
+    match resolved.get("type") {
+        Some(Value::String(s)) => s == "array",
+        Some(Value::Array(types)) => types.iter().any(|t| t.as_str() == Some("array")),
+        _ => false,
+    }
+}
+
+/// Derive `pagination.data_key`: the SINGLE top-level array property of the 2xx
+/// response schema. `None` when there is no response schema, zero arrays (root-array
+/// envelopes handled by the runtime fallback), or more than one (ambiguous → leave
+/// to a curated override).
+fn derive_data_key(root: &Value, response_2xx: Option<&Value>) -> Option<String> {
+    let node = response_2xx?;
+    let props = response_top_props(root, node);
+    let arrays: Vec<&String> = props
+        .iter()
+        .filter(|(_, v)| prop_is_array(root, v))
+        .map(|(k, _)| k)
+        .collect();
+    match arrays.as_slice() {
+        [only] => Some((*only).clone()),
+        _ => None,
+    }
+}
+
+/// Convert a curated [`ConstraintEntry`] into the IR [`Constraint`], verifying every
+/// referenced field is a real top-level body property (table-rot guard).
+fn build_constraint(
+    e: &ConstraintEntry,
+    op_key: &str,
+    body_props: &[String],
+) -> Result<Constraint> {
+    let check = |f: &str| -> Result<()> {
+        if !body_props.iter().any(|p| p == f) {
+            bail!(
+                "constraint {op_key} ({}): body field {f:?} is not a top-level property of the op",
+                e.rule
+            );
+        }
+        Ok(())
+    };
+    Ok(match e.rule.as_str() {
+        "requires_one_of" => {
+            if e.fields.len() < 2 {
+                bail!("constraint {op_key} requires_one_of needs >=2 fields");
+            }
+            for f in &e.fields {
+                check(f)?;
+            }
+            Constraint::RequiresOneOf {
+                fields: e.fields.clone(),
+                message: e.message.clone(),
+            }
+        }
+        "mutually_exclusive" => {
+            if e.fields.len() < 2 {
+                bail!("constraint {op_key} mutually_exclusive needs >=2 fields");
+            }
+            for f in &e.fields {
+                check(f)?;
+            }
+            Constraint::MutuallyExclusive {
+                fields: e.fields.clone(),
+                message: e.message.clone(),
+            }
+        }
+        "required_unless_present" => {
+            let Some(field) = e.field.clone() else {
+                bail!("constraint {op_key} required_unless_present needs `field`");
+            };
+            let Some(unless_present) = e.unless_present.clone() else {
+                bail!("constraint {op_key} required_unless_present needs `unless_present`");
+            };
+            check(&field)?;
+            check(&unless_present)?;
+            if let Some(arr) = &e.or_each_in {
+                check(arr)?;
+            }
+            Constraint::RequiredUnlessPresent {
+                field,
+                unless_present,
+                or_each_in: e.or_each_in.clone(),
+                message: e.message.clone(),
+            }
+        }
+        other => bail!("constraint {op_key}: unknown rule {other:?}"),
+    })
+}
+
 pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     let mut ops: Vec<OperationIr> = Vec::new();
     let mut schemas: BTreeMap<String, Value> = BTreeMap::new();
@@ -144,6 +273,10 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     let mut applied_bulk: BTreeSet<String> = BTreeSet::new();
     let mut applied_comma_join: BTreeSet<String> = BTreeSet::new();
     let mut applied_alias: BTreeSet<String> = BTreeSet::new();
+    let mut applied_constraints: BTreeSet<String> = BTreeSet::new();
+    let mut applied_async: BTreeSet<String> = BTreeSet::new();
+    // (op_key, computed companion status-op id) — verified to exist post-loop.
+    let mut async_status_targets: Vec<(String, String)> = Vec::new();
 
     let sorted_global_secrets: Vec<String> = {
         let mut v = tables.safety.secret_request_fields_global.clone();
@@ -309,7 +442,7 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
             }
 
             // --- pagination ---
-            let pagination = if let Some(ov) = tables.pagination_override_by_op.get(&op_key) {
+            let mut pagination = if let Some(ov) = tables.pagination_override_by_op.get(&op_key) {
                 Pagination {
                     kind: parse_kind(&ov.kind)?,
                     cursor_path: ov.cursor_path.clone(),
@@ -319,6 +452,63 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
             } else {
                 derive_pagination(&query_names)
             };
+            // data_key: the single top-level array of the 2xx response, derived
+            // offline (M5). A curated override (if any) wins; otherwise fill it for
+            // every paginating op so `--all` unwraps real records (not envelopes).
+            if pagination.kind != PaginationKind::None && pagination.data_key.is_none() {
+                pagination.data_key = derive_data_key(&spec.root, raw.response_2xx.as_ref());
+            }
+
+            // --- cross-field constraints (M1, data/constraints.toml) ---
+            let mut constraints: Vec<Constraint> = Vec::new();
+            if let Some(entries) = tables.constraints_by_op.get(&op_key) {
+                for e in entries {
+                    constraints.push(build_constraint(e, &op_key, &body_props)?);
+                }
+                applied_constraints.insert(op_key.clone());
+            }
+
+            // --- async job classification (data/async_jobs.toml) ---
+            let response_props = raw
+                .response_2xx
+                .as_ref()
+                .map(|n| response_top_props(&spec.root, n))
+                .unwrap_or_default();
+            let (async_job, async_status_op, async_uri_field) = if let Some(j) =
+                tables.async_job_by_op.get(&op_key)
+            {
+                applied_async.insert(op_key.clone());
+                let kind = match j.kind.as_str() {
+                    "poll" => AsyncJob::Poll,
+                    "fire_and_forget" => AsyncJob::FireAndForget,
+                    "external_upload" => AsyncJob::ExternalUpload,
+                    "external_download" => AsyncJob::ExternalDownload,
+                    other => bail!("async_jobs {op_key}: unknown kind {other:?}"),
+                };
+                // Companion status op is same-namespace → reuse this op's slug rules.
+                let status_op = j.status_operation_id.as_ref().map(|sid| {
+                    let id = build_id(&domain_slug, &subgroup_slug, collapse, sid);
+                    async_status_targets.push((op_key.clone(), id.clone()));
+                    id
+                });
+                // uri_field must be a real 2xx response property (rot-guard).
+                if let Some(uf) = &j.uri_field
+                    && !response_props.contains_key(uf)
+                {
+                    bail!("async_jobs {op_key}: uri_field {uf:?} is not a 2xx response property");
+                }
+                (kind, status_op, j.uri_field.clone())
+            } else {
+                (AsyncJob::default(), None, None)
+            };
+
+            // --- search keywords (taxonomy.toml, by namespace) ---
+            let search_keywords = tables
+                .taxonomy
+                .search_keywords
+                .get(ns)
+                .cloned()
+                .unwrap_or_default();
 
             // --- retry policy (r5 §4.2) ---
             let method_idempotent = matches!(raw.method.as_str(), "GET" | "PUT" | "DELETE");
@@ -348,7 +538,11 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 secret_request_fields,
                 bulk_triggers,
                 pagination,
-                async_job: Default::default(),
+                async_job,
+                async_status_op,
+                async_uri_field,
+                search_keywords,
+                constraints,
                 region_global_only,
                 retry_safe_5xx,
                 retry_safe_429: true,
@@ -382,6 +576,25 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     if !missing_alias.is_empty() {
         bail!("id_alias entries never applied (op not found?): {missing_alias:?}");
     }
+    let want_constraints: BTreeSet<String> = tables.constraints_by_op.keys().cloned().collect();
+    let missing_constraints: Vec<_> = want_constraints
+        .difference(&applied_constraints)
+        .cloned()
+        .collect();
+    if !missing_constraints.is_empty() {
+        bail!("constraints never applied (op not found?): {missing_constraints:?}");
+    }
+    let want_async: BTreeSet<String> = tables.async_job_by_op.keys().cloned().collect();
+    let missing_async: Vec<_> = want_async.difference(&applied_async).cloned().collect();
+    if !missing_async.is_empty() {
+        bail!("async_jobs entries never applied (op not found?): {missing_async:?}");
+    }
+    // Every curated search_keywords namespace must be a real namespace.
+    for ns in tables.taxonomy.search_keywords.keys() {
+        if !tables.taxonomy.namespaces.contains_key(ns) {
+            bail!("search_keywords targets unknown namespace {ns:?}");
+        }
+    }
     // Pagination overrides + secret-response + destructive-override + send-list
     // entries must all reference real ops too.
     let op_keys: BTreeSet<String> = ops
@@ -401,6 +614,16 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     for k in tables.destructive_set.iter().chain(tables.send_set.iter()) {
         if !op_keys.contains(k) {
             bail!("safety override targets unknown op {k:?}");
+        }
+    }
+    // Every computed async companion status-op id must resolve to a real op.
+    let all_ids: BTreeSet<&str> = ops.iter().map(|o| o.id.as_str()).collect();
+    for (op_key, status_id) in &async_status_targets {
+        if !all_ids.contains(status_id.as_str()) {
+            bail!(
+                "async_jobs {op_key}: companion status op id {status_id:?} does not exist \
+                 (bad status_operation_id?)"
+            );
         }
     }
 

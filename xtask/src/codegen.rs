@@ -86,11 +86,15 @@ pub fn run() -> Result<()> {
         emit::write_artifacts(&generated_dir(), &out.ops, &out.schemas)?;
 
     // Per-class / per-kind tallies for the report.
-    use sendgrid_core::ir::{PaginationKind, SideEffect};
+    use sendgrid_core::ir::{AsyncJob, PaginationKind, SideEffect};
     let mut se = std::collections::BTreeMap::<&str, usize>::new();
     let mut pg = std::collections::BTreeMap::<&str, usize>::new();
+    let mut aj = std::collections::BTreeMap::<&str, usize>::new();
     let mut region_only = 0usize;
     let mut array_bodies = 0usize;
+    let mut data_keys = 0usize;
+    let mut with_constraints = 0usize;
+    let mut with_search_keywords = 0usize;
     for op in &out.ops {
         *se.entry(match op.side_effect {
             SideEffect::Read => "read",
@@ -109,11 +113,28 @@ pub fn run() -> Result<()> {
             PaginationKind::CappedSingle => "capped_single",
         })
         .or_default() += 1;
+        *aj.entry(match op.async_job {
+            AsyncJob::None => "none",
+            AsyncJob::Poll => "poll",
+            AsyncJob::FireAndForget => "fire_and_forget",
+            AsyncJob::ExternalUpload => "external_upload",
+            AsyncJob::ExternalDownload => "external_download",
+        })
+        .or_default() += 1;
         if op.region_global_only {
             region_only += 1;
         }
         if op.body_is_array {
             array_bodies += 1;
+        }
+        if op.pagination.data_key.is_some() {
+            data_keys += 1;
+        }
+        if !op.constraints.is_empty() {
+            with_constraints += 1;
+        }
+        if !op.search_keywords.is_empty() {
+            with_search_keywords += 1;
         }
     }
 
@@ -125,8 +146,12 @@ pub fn run() -> Result<()> {
     println!("  openapiv3 gate: {ok}/{total} parsed");
     println!("  side_effect:    {se:?}");
     println!("  pagination:     {pg:?}");
+    println!("  async_job:      {aj:?}");
     println!("  region_global_only: {region_only}");
     println!("  top-level-array bodies: {array_bodies}");
+    println!("  pagination data_key: {data_keys}");
+    println!("  ops with constraints: {with_constraints}");
+    println!("  ops with search_keywords: {with_search_keywords}");
     println!(
         "  wrote ir.json: {wrote_ir}, schemas.json: {wrote_schemas} (false = already up to date)"
     );

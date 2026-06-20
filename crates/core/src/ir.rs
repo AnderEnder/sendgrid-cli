@@ -87,6 +87,49 @@ pub enum AsyncJob {
     ExternalDownload,
 }
 
+/// A cross-field constraint that JSON Schema can't express — the spec-prose rules
+/// that only show up in human documentation (e.g. SendMail's "provide `content`
+/// **or** `template_id`"). Curated in `data/constraints.toml`, embedded per-op, and
+/// enforced in [`crate::runtime::validate`] **after** schema validation. Also read
+/// by the MCP describe / example-synth agent via [`OperationIr::constraints`].
+///
+/// All field names address **top-level body properties** (the only scope the
+/// curated rules need). Matching treats `null`, `""`, and `[]` as **absent**.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(tag = "rule", rename_all = "snake_case")]
+pub enum Constraint {
+    /// At least one of `fields` must be present, e.g. SendMail `content` /
+    /// `template_id`.
+    RequiresOneOf {
+        fields: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// At most one of `fields` may be present (presenting two is an error), e.g.
+    /// SendMail `reply_to` vs `reply_to_list`.
+    MutuallyExclusive {
+        fields: Vec<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+    /// `field` is required **unless** `unless_present` is present, e.g. SendMail
+    /// `subject` is required unless a `template_id` supplies it.
+    ///
+    /// `or_each_in` handles the per-item escape hatch: the requirement is *also*
+    /// satisfied when `field` is present in **every** element of the named array
+    /// body field — e.g. SendMail accepts no top-level `subject` when every
+    /// `personalizations[]` entry carries its own. Without this, a normal batch
+    /// send would be wrongly rejected locally.
+    RequiredUnlessPresent {
+        field: String,
+        unless_present: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        or_each_in: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        message: Option<String>,
+    },
+}
+
 /// A single request parameter.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ParamIr {
@@ -191,6 +234,26 @@ pub struct OperationIr {
     pub pagination: Pagination,
     #[serde(default)]
     pub async_job: AsyncJob,
+    /// For [`AsyncJob::Poll`] (and the upload jobs that have one): the companion op
+    /// `id` to poll for terminal status — e.g. `ExportContact`'s status endpoint
+    /// `sg_marketing_contacts_GetExportContact`. The CLI `--await` loop drives it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_status_op: Option<String>,
+    /// For [`AsyncJob::ExternalUpload`] / [`AsyncJob::ExternalDownload`]: the dotted
+    /// path to the presigned-URL field in the success response (e.g. `upload_uri`,
+    /// `presigned_url`, `urls`). The CLI upload/download helper reads it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub async_uri_field: Option<String>,
+    /// Curated search aliases that JSON Schema/spec text don't carry — e.g.
+    /// `campaign`/`newsletter`/`broadcast` on the modern Single Sends ops, so an
+    /// agent's natural word reaches the right op. From `data/taxonomy.toml`.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub search_keywords: Vec<String>,
+    /// Cross-field body constraints (spec-prose rules JSON Schema can't encode).
+    /// Curated in `data/constraints.toml`; enforced after schema validation and
+    /// exposed to the MCP example synthesizer.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub constraints: Vec<Constraint>,
     /// True when the spec declares no EU server for this op (14 global-only specs).
     #[serde(default)]
     pub region_global_only: bool,
@@ -230,5 +293,12 @@ impl OperationIr {
         self.params
             .iter()
             .filter(move |p| p.location == loc && p.required)
+    }
+
+    /// The cross-field [`Constraint`]s enforced for this op (empty for most ops).
+    /// Read by the MCP describe / example-synth agent to avoid synthesizing bodies
+    /// the API will 400.
+    pub fn constraints(&self) -> &[Constraint] {
+        &self.constraints
     }
 }

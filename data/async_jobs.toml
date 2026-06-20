@@ -1,0 +1,66 @@
+# Async / multi-step job classification — the handful of ops that aren't a single
+# request/response. Sources: the 202/upload_uri/presigned-URL response shapes in
+# the specs (verified) + PLAN.md P4. Maps to ir::AsyncJob.
+#
+# Each entry targets an op by `namespace.OperationId`. Optional companions:
+#   status_operation_id  the SAME-namespace operationId to poll for terminal status
+#                         (its final `id` is computed by codegen; existence is gated)
+#   uri_field            dotted path to the presigned-URL field in the 2xx response
+#                         (verified against the op's real response properties)
+#
+# Kinds:
+#   poll              202 + a status endpoint to poll until terminal
+#   external_upload   returns an `upload_uri` to PUT to a non-SendGrid host
+#   external_download returns a presigned URL to GET from a non-SendGrid host
+#   fire_and_forget   202 with no status endpoint
+
+# --- Email Activity CSV export (email_activity) ------------------------------
+# RequestCsv 202 {status,message}; the download UUID arrives via webhook, then
+# DownloadCsv returns the presigned link. (CLI --await caveat: the uuid is not in
+# the 202 body, so the chain isn't fully automatic — documented in jobs.rs.)
+[[job]]
+op = "email_activity.RequestCsv"
+kind = "poll"
+status_operation_id = "DownloadCsv"
+
+[[job]]
+op = "email_activity.DownloadCsv"
+kind = "external_download"
+uri_field = "presigned_url"
+
+# --- Marketing contact export (mc_contacts) ----------------------------------
+# ExportContact 202 {id}; poll GetExportContact until status terminal, then GET
+# the `urls` presigned links.
+[[job]]
+op = "mc_contacts.ExportContact"
+kind = "poll"
+status_operation_id = "GetExportContact"
+
+[[job]]
+op = "mc_contacts.GetExportContact"
+kind = "external_download"
+uri_field = "urls"
+
+# --- Marketing contact import (mc_contacts) ----------------------------------
+# ImportContact 200 {job_id,upload_uri,upload_headers}; PUT the CSV/JSON to
+# upload_uri, then poll GetImportContact for status.
+[[job]]
+op = "mc_contacts.ImportContact"
+kind = "external_upload"
+uri_field = "upload_uri"
+status_operation_id = "GetImportContact"
+
+# --- Bulk email-address verification (email_validation) ----------------------
+# ListEmailJobForVerification 200 {job_id,upload_uri,upload_headers}; PUT the
+# upload, then poll GetEmailJobForVerification.
+[[job]]
+op = "email_validation.ListEmailJobForVerification"
+kind = "external_upload"
+uri_field = "upload_uri"
+status_operation_id = "GetEmailJobForVerification"
+
+# --- Recipient data erasure (recipients_data_erasure) ------------------------
+# EraseRecipientEmailData 202 {job_id} — no status GET; fire-and-forget.
+[[job]]
+op = "recipients_data_erasure.EraseRecipientEmailData"
+kind = "fire_and_forget"

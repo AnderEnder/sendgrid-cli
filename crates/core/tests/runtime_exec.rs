@@ -354,6 +354,54 @@ async fn http_error_body_passed_verbatim_with_exit_code() {
     assert_eq!(result.error().unwrap(), &err_body);
 }
 
+/// REVIEW FINDING F1 — FIXED (M5). `--all` now extracts records from the
+/// non-standard `recipients` key via the derived `pagination.data_key`, instead of
+/// wrapping each page envelope as one bogus item.
+#[tokio::test]
+async fn auto_paginate_nonstandard_key_extracts_records_f1_fixed() {
+    let r = Registry::global();
+    // ListRecipient: PaginationKind::PageNumber; the 200 array is under `recipients`.
+    let op = r
+        .by_id("sg_legacy_contactdb_ListRecipient")
+        .expect("ListRecipient op");
+    assert_eq!(
+        op.pagination.data_key.as_deref(),
+        Some("recipients"),
+        "M5: data_key derived for the non-standard `recipients` key"
+    );
+
+    // Each "page" carries 3 real records under the `recipients` key.
+    let page = || json!({ "recipients": [ {"id":"a"}, {"id":"b"}, {"id":"c"} ] });
+
+    // Constant non-empty mock + a low cap: stops at the page cap (the API would
+    // eventually return an empty page; the cap behavior at the boundary is correct).
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.max_pages = 3;
+    c.max_items = 100_000;
+    let dispatcher = MockDispatcher::new(vec![(200, page()), (200, page()), (200, page())]);
+
+    let result = execute_with(&c, op, json!({ "query": {} }), &dispatcher).await;
+    assert!(result.is_success());
+    let items = result.data().unwrap().as_array().unwrap();
+
+    // FIXED: 3 pages × 3 records each = 9 unwrapped records (NOT 3 envelopes).
+    assert_eq!(
+        items.len(),
+        9,
+        "records are unwrapped from the `recipients` key"
+    );
+    assert!(
+        items[0].get("recipients").is_none(),
+        "item is a recipient record, not the page envelope: {}",
+        items[0]
+    );
+    assert_eq!(items[0]["id"], json!("a"));
+    // Stopped at the page cap → a continuation hint is emitted (correct at a cap).
+    assert!(result.next.is_some(), "continuation hint at the page cap");
+    assert_eq!(dispatcher.urls.lock().unwrap().len(), 3, "hit the page cap");
+}
+
 #[tokio::test]
 async fn policy_read_only_blocks_send_but_default_allows() {
     let r = Registry::global();

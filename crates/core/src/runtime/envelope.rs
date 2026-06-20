@@ -64,6 +64,23 @@ impl ExecuteResult {
         }
     }
 
+    /// A documented 3xx success whose payload IS the `Location` redirect (the lone
+    /// `AuthenticateAccount` SSO op). The client does not follow redirects (bearer
+    /// leak defense), so we surface the target as `data = {"location": <url>}` and
+    /// force exit class 0 — `exit_code_for_status(3xx)` would otherwise be 1.
+    pub fn redirect(status: u16, side_effect: SideEffect, location: String) -> Self {
+        ExecuteResult {
+            status,
+            side_effect,
+            exit_code: 0,
+            code: None,
+            request_preview: None,
+            next: None,
+            warnings: Vec::new(),
+            payload: Payload::Data(json!({ "location": location })),
+        }
+    }
+
     /// A non-2xx HTTP response — SendGrid's error body passed verbatim.
     pub fn http_error(status: u16, side_effect: SideEffect, body: Value) -> Self {
         ExecuteResult {

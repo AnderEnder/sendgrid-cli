@@ -222,6 +222,17 @@ known_verbs = [
 ]
 
 # ---------------------------------------------------------------------------
+# search_keywords: curated aliases folded into each op's searchable text (MCP +
+# CLI search), keyed by namespace (applies to every op in it). Closes the
+# discoverability gap (review-agent-ux F4): the marketing word "campaign" appears
+# in ZERO visible ops because campaigns are hidden legacy and the modern surface
+# is "Single Sends". These aliases let an agent's natural word ("send a campaign",
+# "newsletter", "broadcast") reach the modern Single Sends ops instead of landing
+# on transactional SendMail or the deprecated legacy campaign API.
+[search_keywords]
+mc_singlesends = ["campaign", "campaigns", "newsletter", "broadcast", "blast", "bulk email"]
+
+# ---------------------------------------------------------------------------
 # id_alias: the one well-spelled alias for a spec typo. `CreatAsmGroup` (missing
 # the second 'e') is the real operationId in tsg_suppressions; expose the
 # correctly-spelled id as an alias so callers that type it still resolve.
