@@ -13,7 +13,7 @@
 use crate::globals;
 use clap::{Arg, ArgAction, Command};
 use sendgrid_core::Registry;
-use sendgrid_core::ir::{Location, OperationIr};
+use sendgrid_core::ir::{AsyncJob, Location, OperationIr};
 use std::collections::BTreeMap;
 
 /// Leak a computed string to `'static` so clap can hold it. Called a bounded
@@ -77,6 +77,16 @@ fn leaf_command(op: &'static OperationIr) -> Command {
     )));
 
     for p in &op.params {
+        // Footgun fix (code-review): the per-op `on-behalf-of` header param (219
+        // ops carry it) is unconditionally stripped by the always-on
+        // `sanitize_headers` step, so a leaf `--on-behalf-of` would fail closed
+        // (silently, bar a warning). Impersonation is routed ONLY through the
+        // governed global `--on-behalf-of`, so we never emit the leaf flag. This
+        // also keeps `envelope::build` from querying an unregistered arg id (which
+        // panics in clap) — the two must stay symmetric.
+        if is_on_behalf_of(&p.name) {
+            continue;
+        }
         let loc = match p.location {
             Location::Path => "path",
             Location::Query => "query",
@@ -108,7 +118,65 @@ fn leaf_command(op: &'static OperationIr) -> Command {
                 .help("Request body: inline JSON, @path/to/file, or - for stdin"),
         );
     }
+
+    // Async-job flags, shown ONLY on the ops whose `async_job` kind they apply to.
+    // The query for each in `main::run_operation` is gated by the same `async_job`
+    // discriminant, because clap panics on `get_flag`/`get_one` for an arg id that
+    // was never registered on this command.
+    cmd = with_async_flags(cmd, op);
+
     cmd
+}
+
+/// Case-insensitive match for the impersonation header param name.
+fn is_on_behalf_of(name: &str) -> bool {
+    name.eq_ignore_ascii_case("on-behalf-of")
+}
+
+/// Attach the async-transfer flag (if any) that matches this op's `async_job`.
+fn with_async_flags(cmd: Command, op: &OperationIr) -> Command {
+    match op.async_job {
+        AsyncJob::Poll => cmd.arg(
+            Arg::new("await")
+                .long("await")
+                .action(ArgAction::SetTrue)
+                .help(
+                    "Submit, then poll the companion status op until the job reaches a \
+                     terminal state and print it (non-zero exit if the job FAILED). \
+                     Caveat: some jobs deliver the job id out-of-band via webhook rather \
+                     than in the submit response (e.g. email-activity RequestCsv → \
+                     DownloadCsv); those cannot be auto-awaited and the response is \
+                     printed with guidance instead.",
+                ),
+        ),
+        AsyncJob::ExternalUpload => cmd.arg(
+            Arg::new("upload-file")
+                .long("upload-file")
+                .value_name("PATH")
+                .action(ArgAction::Set)
+                .help(
+                    "Submit, then PUT this file's bytes to the presigned upload URL the \
+                     response returns. No SendGrid credentials are sent to the upload host \
+                     (the URL is pre-authorized). Only Content-Type from the response's \
+                     upload_headers is forwarded.",
+                ),
+        ),
+        AsyncJob::ExternalDownload => cmd.arg(
+            Arg::new("download")
+                .long("download")
+                .value_name("DEST")
+                .action(ArgAction::Set)
+                .help(
+                    "Fetch the presigned URL(s) the response returns and write to DEST (a \
+                     file for one URL; a directory for many). The resolved URLs are also \
+                     printed — they are the reliable artifact, since binary/compressed \
+                     payloads may not round-trip the JSON transfer layer. If the link is \
+                     not ready yet, run the submit op with --await first.",
+                ),
+        ),
+        // FireAndForget (and None) get no extra flag — nothing to poll or transfer.
+        AsyncJob::FireAndForget | AsyncJob::None => cmd,
+    }
 }
 
 /// Recursively convert a trie node into a clap subcommand named `name`.
@@ -137,6 +205,26 @@ fn search_command() -> Command {
                 .value_name("TERMS")
                 .help("One or more search terms (matched case-insensitively)"),
         )
+}
+
+/// The `sendgrid auth <whoami|scopes|doctor>` subcommand group — credential and
+/// region introspection for an agent verifying its setup before firing ops.
+fn auth_command() -> Command {
+    Command::new("auth")
+        .about("Inspect and verify the configured API key, region, and granted scopes")
+        .subcommand_required(true)
+        .arg_required_else_help(true)
+        .subcommand(
+            Command::new("scopes")
+                .about("List the scopes granted to the configured key (GET /v3/scopes)"),
+        )
+        .subcommand(Command::new("whoami").about(
+            "Show the active region, a redacted key fingerprint (never the key), and granted scopes",
+        ))
+        .subcommand(Command::new("doctor").about(
+            "Diagnose setup: key present + well-formed, region availability, and a live scopes \
+             call — actionable checks before firing operations",
+        ))
 }
 
 /// The `sendgrid mcp` subcommand.
@@ -191,8 +279,12 @@ pub fn build(include_legacy: bool) -> (Command, ResolveMap) {
         root = root.subcommand(node_to_command(gname, child));
     }
 
-    // Reserved built-in subcommands (verified not to collide with any group token).
-    root = root.subcommand(search_command()).subcommand(mcp_command());
+    // Reserved built-in subcommands (verified not to collide with any group token:
+    // `auth` is not among the 15 domain tokens).
+    root = root
+        .subcommand(search_command())
+        .subcommand(mcp_command())
+        .subcommand(auth_command());
 
     (root, resolve)
 }

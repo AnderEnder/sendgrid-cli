@@ -19,6 +19,12 @@ pub fn build(op: &OperationIr, m: &ArgMatches, globals: &GlobalOpts) -> anyhow::
     let mut header = Map::new();
 
     for p in &op.params {
+        // The `on-behalf-of` leaf flag is intentionally NOT generated (impersonation
+        // is governed only through the global `--on-behalf-of`). Querying clap for an
+        // unregistered arg id panics, so this skip MUST mirror `tree::leaf_command`.
+        if p.name.eq_ignore_ascii_case("on-behalf-of") {
+            continue;
+        }
         if let Some(v) = m.get_one::<String>(&p.name) {
             let bucket = match p.location {
                 Location::Path => &mut path,

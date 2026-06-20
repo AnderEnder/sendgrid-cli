@@ -1,39 +1,58 @@
 //! `search_operations` — in-memory lexical ranking over the operation registry.
 //!
-//! Ranking is field-weighted (`id > tags > summary > path`) with **IDF² emphasis**
-//! so rare, discriminating tokens (e.g. `campaign`, df=11) dominate over the very
-//! common ones (`list`, df=137; `get`, df=101). Two refinements make agent queries
-//! rank intuitively:
-//!   - a **List↔Retrieve / Create↔Add synonym map** (98 `List*` ops summarize as
-//!     "Retrieve"), applied at a discount so a query verb still finds the op;
-//!   - an **action-verb boost**: when the op's leading `operation_id` verb (e.g.
-//!     `Create`, `Send`) is itself a query token, it is boosted by its own IDF² —
-//!     this is what ranks `CreateMarketingList` over `ListContactCount` for
-//!     "create contact list" (the `create` verb is rare; `list` is not).
+//! Ranking is field-weighted (`id > tags ≈ keywords > summary > path`) with
+//! **IDF² emphasis** so rare, discriminating tokens (e.g. `campaign`, df=11)
+//! dominate over the very common ones (`list`, df=137; `get`, df=101). Four
+//! refinements make agent queries rank intuitively:
+//!   - **light stemming** ([`crate::text::stem`]) folds query and doc tokens to a
+//!     common stem, so `bounced`/`emails`/`suppress` match `bounces`/`email`/
+//!     `suppression` instead of scoring zero (review-agent-ux F2);
+//!   - a **List↔Retrieve / Create↔Add / Verify↔Validate synonym map** (98 `List*`
+//!     ops summarize as "Retrieve"), applied at a discount so a query verb still
+//!     finds the op;
+//!   - **curated `search_keywords`** (e.g. `campaign`/`newsletter` → the modern
+//!     Single Sends ops) indexed as a tag-weight, match-only field — so an agent's
+//!     natural marketing word reaches the right op (review-agent-ux F4);
+//!   - a **gated action-verb boost**: when the op's leading `operation_id` verb
+//!     (e.g. `Create`, `Send`) is a query token AND the op covers a second distinct
+//!     query term, it is boosted by its own IDF² — this ranks `CreateMarketingList`
+//!     over `ListContactCount` for "create contact list" without letting a bare
+//!     verb match (e.g. `Create*` on "create a contact") flood the top (F3).
 //!
 //! IDF is computed **once over all 391 ops including hidden** (corpus statistics
-//! shouldn't shift with the `--include-legacy` flag); the hidden filter is applied
-//! only when collecting results.
+//! shouldn't shift with the `--include-legacy` flag) over the **stemmed** tokens of
+//! `id/tags/summary/path` (keywords excluded — see [`W_KEYWORDS`]); the hidden
+//! filter is applied only when collecting results.
 
-use crate::text::{tokenize, truncate};
+use crate::text::{stem, tokenize, truncate};
 use sendgrid_core::Registry;
 use sendgrid_core::ir::OperationIr;
 use serde_json::{Map, Value, json};
 use std::collections::{HashMap, HashSet};
 use std::sync::OnceLock;
 
-// --- Tuning constants (calibrated offline against the two review-U2 sanity
-// cases; see crate tests). Case 1 is comfortable (CreateMarketingList 85.1 vs
-// ListContactCount <69); case 2 is tight (SendCampaign 113.0 vs
-// SendTestMarketingEmail 108.4, ~1.04x) but deterministic and stable while the IR
-// artifact is frozen — it would only shift if the corpus DF changes. ---
+// --- Tuning constants (calibrated against the two review-U2 sanity cases; see
+// crate tests). Numbers below are POST-stemming (stemming folds the corpus DF, so
+// the pre-P4b absolute scores no longer apply). Case 1: CreateMarketingList 84.96
+// vs ListContactCount 44.81 (~1.9x) — comfortable, but the margin RELIES on the
+// gated verb boost (create's IDF² ≫ list's); without it the two would invert.
+// Case 2: SendCampaign 110.84 vs SendTestMarketingEmail 105.50 (~1.05x) — tight but
+// deterministic/stable while the IR artifact is frozen; the rare `campaign` keeps
+// its discriminative IDF because curated `search_keywords` are excluded from DF. ---
 const W_ID: f64 = 3.0;
 const W_TAGS: f64 = 2.0;
+/// Curated search aliases (`OperationIr::search_keywords`) — weighted at tag level
+/// since they are deliberately high-signal discovery hooks (e.g. `campaign` →
+/// Single Sends). Match-only: they are NOT counted in document frequency, so they
+/// don't dilute the IDF of a rare alias like `campaign` (review-agent-ux F4).
+const W_KEYWORDS: f64 = 2.0;
 const W_SUMMARY: f64 = 1.5;
 const W_PATH: f64 = 1.0;
 /// Synonym matches count, but at a discount vs. a literal hit.
 const SYN_DISCOUNT: f64 = 0.4;
-/// Extra weight for the op's action verb appearing in the query.
+/// Extra weight for the op's action verb appearing in the query. Gated on the op
+/// covering ≥2 distinct query terms (see [`score_op`]) so a verb-only match never
+/// outranks the op that also matches the discriminating noun (review-agent-ux F3).
 const VERB_BOOST: f64 = 2.0;
 /// Reward for covering more distinct query terms.
 const COVERAGE_BONUS: f64 = 0.15;
@@ -77,6 +96,10 @@ fn synonyms(t: &str) -> &'static [&'static str] {
         "remove" => &["delete", "erase"],
         "update" => &["edit", "patch"],
         "send" => &["dispatch"],
+        // SendGrid's UI "verify a domain" button maps to the Validate* domain-auth
+        // op; bridge the agent's natural verb to the spec's `validate`.
+        "verify" => &["validate"],
+        "validate" => &["verify"],
         _ => &[],
     }
 }
@@ -115,11 +138,16 @@ fn is_action_verb(t: &str) -> bool {
 }
 
 /// Per-op precomputed token sets + action verb, parallel to `registry.operations()`.
+/// All token sets are **stemmed** ([`crate::text::stem`]) so the match step folds
+/// inflected query words; `verb` is kept **raw** because the synonym map and
+/// [`is_action_verb`] classifier key on exact verb strings.
 struct OpTokens {
     id: HashSet<String>,
     tags: HashSet<String>,
     summary: HashSet<String>,
     path: HashSet<String>,
+    /// Curated aliases (`search_keywords`), stemmed. Match-only — excluded from IDF.
+    keywords: HashSet<String>,
     verb: String,
 }
 
@@ -143,22 +171,20 @@ fn build_index(reg: &Registry) -> Index {
     let mut op_tokens = Vec::with_capacity(ops.len());
 
     for op in ops {
-        let id: HashSet<String> = tokenize(&op.id).into_iter().collect();
-        let tags: HashSet<String> = op.tags.iter().flat_map(|t| tokenize(t)).collect();
-        let summary: HashSet<String> = op
-            .summary
-            .as_deref()
-            .map(tokenize)
-            .unwrap_or_default()
-            .into_iter()
-            .collect();
-        let path: HashSet<String> = tokenize(&op.path).into_iter().collect();
+        let id = stemmed_set(tokenize(&op.id));
+        let tags = stemmed_set(op.tags.iter().flat_map(|t| tokenize(t)));
+        let summary = stemmed_set(op.summary.as_deref().map(tokenize).unwrap_or_default());
+        let path = stemmed_set(tokenize(&op.path));
+        let keywords = stemmed_set(op.search_keywords.iter().flat_map(|k| tokenize(k)));
+        // Raw (unstemmed) leading verb — the synonym map + verb classifier key on it.
         let verb = tokenize(&op.operation_id)
             .into_iter()
             .next()
             .unwrap_or_default();
 
-        // Document frequency: count each token once per op across all fields.
+        // Document frequency: count each token once per op across the indexed
+        // fields. `keywords` are intentionally EXCLUDED so a rare curated alias
+        // (e.g. `campaign`) keeps its discriminative IDF (review-agent-ux F4).
         let mut seen: HashSet<&String> = HashSet::new();
         for set in [&id, &tags, &summary, &path] {
             for tok in set {
@@ -174,6 +200,7 @@ fn build_index(reg: &Registry) -> Index {
             tags,
             summary,
             path,
+            keywords,
             verb,
         });
     }
@@ -191,32 +218,42 @@ fn build_index(reg: &Registry) -> Index {
     }
 }
 
+/// Collect an iterator of raw tokens into a **stemmed** set (the form stored in the
+/// index and compared against stemmed query tokens).
+fn stemmed_set(tokens: impl IntoIterator<Item = String>) -> HashSet<String> {
+    tokens.into_iter().map(|t| stem(&t)).collect()
+}
+
+/// IDF keyed by **stem** (the index DF is over stemmed tokens).
 fn idf_of(idx: &Index, t: &str) -> f64 {
-    idx.idf.get(t).copied().unwrap_or(idx.unknown_idf)
+    idx.idf.get(&stem(t)).copied().unwrap_or(idx.unknown_idf)
 }
 
 /// Score one op against the (stopword-filtered) query terms. Returns 0 when no
-/// query term matches anywhere.
+/// query term matches anywhere. `terms` are **raw**; matching folds them with
+/// [`stem`] against the index's stemmed token sets.
 fn score_op(idx: &Index, ot: &OpTokens, terms: &[String]) -> f64 {
     let mut total = 0.0;
     let mut covered = 0usize;
 
     for qt in terms {
+        let qs = stem(qt);
         // Best field weight where the term (or a discounted synonym) appears.
         let mut best = 0.0_f64;
         let mut matched = false;
         for (set, w) in [
             (&ot.id, W_ID),
             (&ot.tags, W_TAGS),
+            (&ot.keywords, W_KEYWORDS),
             (&ot.summary, W_SUMMARY),
             (&ot.path, W_PATH),
         ] {
-            if set.contains(qt) {
+            if set.contains(&qs) {
                 best = best.max(w);
                 matched = true;
             } else {
                 for syn in synonyms(qt) {
-                    if set.contains(*syn) {
+                    if set.contains(&stem(syn)) {
                         best = best.max(w * SYN_DISCOUNT);
                         matched = true;
                     }
@@ -230,8 +267,11 @@ fn score_op(idx: &Index, ot: &OpTokens, terms: &[String]) -> f64 {
         }
     }
 
-    // Action-verb boost: the op's verb is itself a query term.
-    if is_action_verb(&ot.verb) && terms.iter().any(|t| t == &ot.verb) {
+    // Action-verb boost: the op's verb is itself a query term — but ONLY when the op
+    // also covers a second distinct query term. A verb-only match (e.g. `create` on
+    // an unrelated `Create*` op for "create a contact") gets no boost, so it can't
+    // outrank the op matching the discriminating noun (review-agent-ux F3).
+    if covered > 1 && is_action_verb(&ot.verb) && terms.iter().any(|t| stem(t) == stem(&ot.verb)) {
         let idf = idf_of(idx, &ot.verb);
         total += VERB_BOOST * idf * idf * W_ID;
     }
@@ -433,6 +473,107 @@ mod tests {
             legacy
                 .iter()
                 .any(|id| id == "sg_legacy_campaigns_SendCampaign")
+        );
+    }
+
+    /// Domain of the op with this id (helper for the suppressions-domain assertion).
+    fn domain_of(id: &str) -> String {
+        Registry::global()
+            .by_id(id)
+            .map(|o| o.domain.clone())
+            .unwrap_or_default()
+    }
+
+    // --- Reviewer's tricky queries (review-agent-ux F2/F3/F4) -------------------
+    // Each query previously returned a wrong-domain #1 or nothing in the top 100.
+    // We assert the *fix*, not an arbitrary slot: the right op is surfaced near the
+    // top and the specific regression op is demoted. Where pure lexical ranking
+    // can't make the ideal op #1 (it isn't named for the query's verb, or a rival
+    // matches more query tokens), the assertion captures the achievable, stable win.
+
+    #[test]
+    fn tricky_suppress_an_email_address() {
+        // F2: stemming makes `suppress` reach `suppression(s)`. Was: not in top 100,
+        // #1 a validation-email job. Now: top is a suppressions-domain op and the
+        // global-suppression op (the "add an address to suppressions" op) is surfaced.
+        let ids = ranked_ids("suppress an email address", false);
+        assert_eq!(
+            domain_of(&ids[0]),
+            "suppressions",
+            "top hit should be in the suppressions domain, got {}",
+            ids[0]
+        );
+        let p = pos(&ids, "sg_suppressions_CreateGlobalSuppression");
+        assert!(
+            p < 8,
+            "CreateGlobalSuppression should be surfaced near the top, was at {p}"
+        );
+    }
+
+    #[test]
+    fn tricky_verify_my_sending_domain() {
+        // F2 + verify→validate synonym. The domain-authentication validate op should
+        // rank in the top 2 (it's the SendGrid "verify a domain" action).
+        let ids = ranked_ids("verify my sending domain", false);
+        let p = pos(&ids, "sg_branding_domain_ValidateAuthenticatedDomain");
+        assert!(
+            p < 2,
+            "ValidateAuthenticatedDomain should be top-2, was at {p}"
+        );
+    }
+
+    #[test]
+    fn tricky_list_bounced_emails() {
+        // F2: `bounced` stems to match `bounces`. Was: not in top 100 (only the exact
+        // plural "bounces" matched). Now ListSuppressionBounces is top-ranked (it ties
+        // a couple of bounce-settings list ops, broken alphabetically).
+        let ids = ranked_ids("list bounced emails", false);
+        let p = pos(&ids, "sg_suppressions_ListSuppressionBounces");
+        assert!(p < 4, "ListSuppressionBounces should be top-4, was at {p}");
+    }
+
+    #[test]
+    fn tricky_create_a_contact() {
+        // F3 (the named regression): the contact op is `UpdateContact` ("Add or Update
+        // a Contact"). The gated verb boost must keep unrelated `Create*` ops (account
+        // /sso/...) BELOW it; previously they flooded the top (CreateAccount was #1,
+        // UpdateContact #26).
+        let ids = ranked_ids("create a contact", false);
+        let contact = pos(&ids, "sg_marketing_contacts_UpdateContact");
+        assert!(
+            contact < 3,
+            "UpdateContact should be top-3, was at {contact}"
+        );
+        for unrelated in [
+            "sg_account_provisioning_CreateAccount",
+            "sg_account_sso_CreateSsoIntegration",
+            "sg_account_subusers_CreateSubuser",
+        ] {
+            assert!(
+                contact < pos(&ids, unrelated),
+                "UpdateContact ({contact}) must outrank the unrelated Create op {unrelated} \
+                 ({})",
+                pos(&ids, unrelated)
+            );
+        }
+    }
+
+    #[test]
+    fn tricky_send_a_campaign() {
+        // F4: `campaign` is a curated search_keyword on the modern Single Sends ops.
+        // Was: #1 = transactional SendMail; Single Sends never appeared. Now a
+        // singlesends op tops the list and outranks SendMail.
+        let ids = ranked_ids("send a campaign", false);
+        assert!(
+            ids[0].contains("singlesends"),
+            "top hit should be a Single Sends op, got {}",
+            ids[0]
+        );
+        let single = pos(&ids, &ids[0].clone());
+        let sendmail = pos(&ids, "sg_mail_send_SendMail");
+        assert!(
+            single < sendmail,
+            "a Single Sends op ({single}) must outrank transactional SendMail ({sendmail})"
         );
     }
 

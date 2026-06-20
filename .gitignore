@@ -5,3 +5,6 @@
 /.research-sendgrid-oai
 /.research-spikes
 /.research-notes
+
+# Generator bake-off proof code (Backend T — dropped; discardable).
+/bakeoff

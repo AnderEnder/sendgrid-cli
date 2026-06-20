@@ -5,8 +5,10 @@
 //! flags are root-level; `execute()` in `sendgrid-core` is the single dispatch
 //! chokepoint. See the module docs for the `cli_path` → command convention.
 
+mod auth;
 mod envelope;
 mod globals;
+mod jobs;
 mod output;
 mod resolve;
 mod search;
@@ -51,6 +53,7 @@ async fn run() -> i32 {
             search::run(&terms, globals.include_legacy)
         }
         Some(("mcp", sub)) => run_mcp(sub, &globals).await,
+        Some(("auth", sub)) => run_auth(sub, &globals).await,
         Some(_) => run_operation(&matches, &resolve_map, &globals).await,
         None => {
             // Unreachable: the root sets `subcommand_required(true)`.
@@ -85,6 +88,16 @@ async fn run_mcp(sub: &ArgMatches, globals: &GlobalOpts) -> i32 {
     }
 }
 
+async fn run_auth(sub: &ArgMatches, globals: &GlobalOpts) -> i32 {
+    match sub.subcommand() {
+        Some(("scopes", _)) => auth::scopes(globals).await,
+        Some(("whoami", _)) => auth::whoami(globals).await,
+        Some(("doctor", _)) => auth::doctor(globals).await,
+        // Unreachable: the `auth` group sets subcommand_required(true).
+        _ => 64,
+    }
+}
+
 async fn run_operation(
     matches: &ArgMatches,
     resolve_map: &std::collections::BTreeMap<String, &'static OperationIr>,
@@ -111,6 +124,21 @@ async fn run_operation(
             return 64;
         }
     };
+
+    // Async-job flags take over the call (each builds its own runtime config). The
+    // query is gated by the op's `async_job` kind inside `selected_async`, since
+    // clap panics on `get_flag`/`get_one` for an unregistered arg id.
+    match jobs::selected_async(op, leaf) {
+        Some(jobs::AsyncAction::Await) => return jobs::run_await(op, args, globals).await,
+        Some(jobs::AsyncAction::Upload(path)) => {
+            return jobs::run_upload(op, args, globals, &path).await;
+        }
+        Some(jobs::AsyncAction::Download(dest)) => {
+            return jobs::run_download(op, args, globals, &dest).await;
+        }
+        None => {}
+    }
+
     let cfg = match globals.runtime_config() {
         Ok(c) => c,
         Err(e) => {
@@ -233,6 +261,130 @@ mod tests {
         let globals = GlobalOpts::from_matches(&matches).expect("globals");
         assert!(globals.dry_run);
         assert_eq!(globals.output, globals::OutputFormat::Table);
+    }
+
+    #[test]
+    fn obo_op_envelope_builds_without_leaf_flag() {
+        // Regression: 219 ops carry an `on-behalf-of` header param whose leaf flag
+        // is suppressed. `envelope::build` must NOT query that arg id (clap panics
+        // on an unregistered id) and must emit no `on-behalf-of` header.
+        let (command, resolve_map) = tree::build(false);
+        let matches = command
+            .try_get_matches_from([
+                "sendgrid",
+                "account",
+                "teammates",
+                "get-teammate",
+                "--username",
+                "alice",
+            ])
+            .expect("parses without --on-behalf-of");
+        let (chain, leaf) = resolve::leaf_matches(&matches);
+        let op = resolve_map
+            .get(&chain.join(" "))
+            .copied()
+            .expect("resolves");
+        assert!(
+            op.params.iter().any(|p| p.name == "on-behalf-of"),
+            "GetTeammate is expected to carry an on-behalf-of header param"
+        );
+        let env = envelope::build(op, leaf, &test_globals()).expect("envelope builds");
+        assert_eq!(env["path"]["username"], Value::String("alice".into()));
+        assert!(
+            env["header"]
+                .as_object()
+                .map(|m| m.is_empty())
+                .unwrap_or(true),
+            "no on-behalf-of (or any) header should be emitted from the leaf"
+        );
+    }
+
+    #[test]
+    fn obo_leaf_flag_is_rejected() {
+        // The suppressed leaf flag must not exist — passing it is an unknown-arg error.
+        let (command, _resolve) = tree::build(false);
+        let err = command.try_get_matches_from([
+            "sendgrid",
+            "account",
+            "teammates",
+            "get-teammate",
+            "--username",
+            "alice",
+            "--on-behalf-of",
+            "subuser",
+        ]);
+        assert!(err.is_err(), "leaf --on-behalf-of should be rejected");
+    }
+
+    #[test]
+    fn global_on_behalf_of_still_parses() {
+        // Impersonation is routed only through the governed global flag (root-level).
+        let (command, _resolve) = tree::build(false);
+        let matches = command
+            .try_get_matches_from([
+                "sendgrid",
+                "--on-behalf-of",
+                "subuser",
+                "account",
+                "teammates",
+                "get-teammate",
+                "--username",
+                "alice",
+            ])
+            .expect("global --on-behalf-of parses before the subcommand");
+        let globals = GlobalOpts::from_matches(&matches).expect("globals");
+        assert_eq!(globals.on_behalf_of.as_deref(), Some("subuser"));
+    }
+
+    #[test]
+    fn auth_subcommands_parse() {
+        let (command, _resolve) = tree::build(false);
+        for sub in ["scopes", "whoami", "doctor"] {
+            command
+                .clone()
+                .try_get_matches_from(["sendgrid", "auth", sub])
+                .unwrap_or_else(|e| panic!("auth {sub} parses: {e}"));
+        }
+        // The group requires a subcommand.
+        assert!(
+            command.try_get_matches_from(["sendgrid", "auth"]).is_err(),
+            "bare `auth` requires a subcommand"
+        );
+    }
+
+    #[test]
+    fn async_ops_expose_the_right_flags() {
+        let (command, _resolve) = tree::build(false);
+        // Poll op → --await.
+        command
+            .clone()
+            .try_get_matches_from([
+                "sendgrid",
+                "marketing",
+                "contacts",
+                "export-contact",
+                "--await",
+            ])
+            .expect("export-contact --await");
+        // ExternalUpload op → --upload-file.
+        command
+            .clone()
+            .try_get_matches_from([
+                "sendgrid",
+                "marketing",
+                "contacts",
+                "import-contact",
+                "--upload-file",
+                "/tmp/x.csv",
+            ])
+            .expect("import-contact --upload-file");
+        // A non-async op must reject --await.
+        assert!(
+            command
+                .try_get_matches_from(["sendgrid", "mail", "send", "send-mail", "--await"])
+                .is_err(),
+            "--await should not exist on a non-poll op"
+        );
     }
 
     fn test_globals() -> GlobalOpts {

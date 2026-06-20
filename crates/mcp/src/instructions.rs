@@ -7,6 +7,10 @@ WORKFLOW (search → describe → invoke):
   1. search_operations { query, [tags], [side_effect], [method], [domain], [limit] }
      → ranked metadata-only hits: { id, summary, method, path, side_effect, tags }.
        Start here; queries are free-text (e.g. "create a contact list", "send email").
+       If the top hit looks off-target or nothing fits, retry with a synonym or the
+       modern term (SendGrid renamed several concepts): "campaign"/"newsletter" →
+       "single send"; "verify a domain" → "validate"; "suppress" → "suppression".
+       You can also narrow with a `domain` or `tags` filter (e.g. domain:"suppressions").
   2. describe_operation { id, [expand: minimal|full] }
      → minimal (default): params, required fields, a compact body EXAMPLE, and
        cross-field constraints — enough to build a valid call cheaply.
