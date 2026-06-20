@@ -11,6 +11,11 @@ path = "src/main.rs"
 
 [dependencies]
 sendgrid-core.workspace = true
+sendgrid-mcp = { path = "../mcp" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+# Dynamic command tree built at runtime from the IR (builder API, not derive).
+clap = "4"
+# CLI owns the async runtime; execute() is async.
+tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }

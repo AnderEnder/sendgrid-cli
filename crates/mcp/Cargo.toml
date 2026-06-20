@@ -10,3 +10,10 @@ sendgrid-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
+# rmcp 1.7.0: stdio MCP server. We hand-implement `ServerHandler` (no `#[tool]`
+# derive macros) so tool names + input schemas are built from runtime IR data.
+rmcp = { version = "1.7.0", features = ["server", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
+
+[dev-dependencies]
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
