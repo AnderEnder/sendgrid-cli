@@ -1,0 +1,5 @@
+---
+source: crates/core/tests/golden_requests.rs
+expression: url
+---
+https://api.sendgrid.com/v3/send_ips/ips?tag=alpha&tag=beta&tag=gamma

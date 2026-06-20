@@ -1,0 +1,88 @@
+---
+source: crates/core/tests/golden_requests.rs
+expression: preview
+---
+{
+  "body": {
+    "asm": {
+      "group_id": 12345,
+      "groups_to_display": [
+        12345,
+        6789
+      ]
+    },
+    "attachments": [
+      {
+        "content": "JVBERi0xLjQKJYGBgYEKMSAwIG9iago8PAo+PgplbmRvYmoK",
+        "content_id": "invoice-001",
+        "disposition": "attachment",
+        "filename": "invoice.pdf",
+        "type": "application/pdf"
+      }
+    ],
+    "categories": [
+      "invoice",
+      "june"
+    ],
+    "content": [
+      {
+        "type": "text/plain",
+        "value": "Thanks for your business."
+      },
+      {
+        "type": "text/html",
+        "value": "<p>Thanks for your business.</p>"
+      }
+    ],
+    "from": {
+      "email": "sales@example.com",
+      "name": "Example Sales"
+    },
+    "personalizations": [
+      {
+        "cc": [
+          {
+            "email": "manager@example.net"
+          }
+        ],
+        "dynamic_template_data": {
+          "first_name": "Dana",
+          "total": "$42.00"
+        },
+        "send_at": 1718900000,
+        "subject": "Your June invoice",
+        "to": [
+          {
+            "email": "customer@example.net",
+            "name": "A Customer"
+          }
+        ]
+      },
+      {
+        "subject": "Your June invoice (copy)",
+        "to": [
+          {
+            "email": "second@example.net"
+          }
+        ]
+      }
+    ],
+    "reply_to": {
+      "email": "reply@example.com"
+    },
+    "send_at": 1718900000,
+    "subject": "Your June invoice",
+    "template_id": "d-abc123def4567890abcdef1234567890",
+    "tracking_settings": {
+      "click_tracking": {
+        "enable": true
+      }
+    }
+  },
+  "headers": {
+    "authorization": "Bearer [REDACTED]",
+    "content-type": "application/json"
+  },
+  "method": "POST",
+  "url": "https://api.sendgrid.com/v3/mail/send"
+}

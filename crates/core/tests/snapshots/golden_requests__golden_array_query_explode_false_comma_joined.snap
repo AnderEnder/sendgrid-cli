@@ -1,0 +1,5 @@
+---
+source: crates/core/tests/golden_requests.rs
+expression: url
+---
+https://api.sendgrid.com/v3/marketing/stats/singlesends/export?ids=ss_111%2Css_222%2Css_333&timezone=America%2FNew_York

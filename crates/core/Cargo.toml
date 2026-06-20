@@ -46,3 +46,11 @@ futures-timer = "3"
 [dev-dependencies]
 # core is a library: consumers own the async runtime. tokio is dev-only, for tests.
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "time"] }
+# L2 golden-request snapshots over the dry-run build path. The `json` feature
+# enables `assert_json_snapshot!`; committed `.snap` files keep the suite
+# deterministic (no live network).
+insta = { version = "1", features = ["json"] }
+# L3 contract tests: a localhost SendGrid mock the real ReqwestDispatcher drives
+# end-to-end — exercises reqwest's header serialization, no-follow redirect policy,
+# and the retry/pagination engines over real HTTP (not a hand-rolled dispatcher).
+wiremock = "0.6"

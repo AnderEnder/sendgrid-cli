@@ -1,0 +1,17 @@
+---
+source: crates/core/tests/golden_requests.rs
+expression: preview
+---
+{
+  "body": [
+    "recipient_id_aaa",
+    "recipient_id_bbb",
+    "recipient_id_ccc"
+  ],
+  "headers": {
+    "authorization": "Bearer [REDACTED]",
+    "content-type": "application/json"
+  },
+  "method": "DELETE",
+  "url": "https://api.sendgrid.com/v3/contactdb/recipients"
+}
