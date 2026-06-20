@@ -1,0 +1,138 @@
+name: spec-drift
+
+# Weekly (and on-demand) check for SEMANTIC drift between the vendored specs/
+# (pinned by specs.lock) and twilio/sendgrid-oai at HEAD. On drift, open (or
+# update) a tracking issue carrying the operation-set changelog + the maintainer
+# rev-bump/regenerate steps. We open an ISSUE rather than a PR because adopting
+# upstream edits specs/, specs.lock, AND the regenerated crates/core/generated/
+# artifact — a deliberate maintainer action, documented in the issue body below.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  drift:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.96.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+
+      - uses: Swatinem/rust-cache@v2
+
+      # Read the upstream source + path + pinned rev straight from specs.lock so
+      # this workflow never hardcodes them (single source of truth).
+      - name: Read pin from specs.lock
+        id: pin
+        run: |
+          set -euo pipefail
+          src=$(grep -E '^source[[:space:]]*=' specs.lock | sed -E 's/.*"(.*)".*/\1/')
+          path=$(grep -E '^path[[:space:]]*=' specs.lock | sed -E 's/.*"(.*)".*/\1/')
+          rev=$(grep -E '^rev[[:space:]]*=' specs.lock | sed -E 's/.*"(.*)".*/\1/')
+          {
+            echo "source=$src"
+            echo "path=$path"
+            echo "rev=$rev"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Clone upstream at HEAD
+        id: upstream
+        run: |
+          set -euo pipefail
+          dir="$RUNNER_TEMP/upstream"
+          git clone --depth 1 "${{ steps.pin.outputs.source }}" "$dir"
+          head=$(git -C "$dir" rev-parse HEAD)
+          echo "dir=$dir"   >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "upstream HEAD: $head   (pinned rev: ${{ steps.pin.outputs.rev }})"
+
+      # `drift` exit codes: 0 = no drift, 1 = drift, 2+ = tool error. We must NOT
+      # let drift (1) kill the job before we can file the issue, but a tool error
+      # (2, or cargo's 101) MUST fail the job red — otherwise a transient upstream
+      # error would file a blank-changelog issue while reporting green.
+      - name: Run drift detection
+        id: drift
+        env:
+          UPSTREAM: ${{ steps.upstream.outputs.dir }}/${{ steps.pin.outputs.path }}
+        run: |
+          set +e
+          cargo run -q -p xtask -- drift --upstream "$UPSTREAM" | tee drift-report.txt
+          code=${PIPESTATUS[0]}
+          set -e
+          case "$code" in
+            0) echo "no drift" ;;
+            1) cargo run -q -p xtask -- drift --upstream "$UPSTREAM" --json > drift-report.json ;;
+            *) echo "::error::drift tool failed (exit $code)"; exit "$code" ;;
+          esac
+          echo "exit_code=$code" >> "$GITHUB_OUTPUT"
+
+      - name: Upload drift reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: drift-reports
+          path: |
+            drift-report.txt
+            drift-report.json
+          if-no-files-found: ignore
+
+      # exit_code == 1  ⇒  semantic drift (not a tool error). File/update one issue.
+      - name: Open / update drift issue
+        if: steps.drift.outputs.exit_code == '1'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PINNED: ${{ steps.pin.outputs.rev }}
+          HEAD_SHA: ${{ steps.upstream.outputs.head }}
+        run: |
+          set -euo pipefail
+          label="spec-drift"
+          gh label create "$label" --color FBCA04 --description "Upstream OpenAPI spec drift" 2>/dev/null || true
+
+          # Build the issue/comment body from the human report file (no shell
+          # interpolation of report contents → no injection surface).
+          {
+            echo "Automated spec-drift check found **semantic drift** between the vendored"
+            echo "\`specs/\` (pinned in \`specs.lock\`) and upstream \`twilio/sendgrid-oai\` at HEAD."
+            echo
+            echo "- Pinned rev: \`$PINNED\`"
+            echo "- Upstream HEAD: \`$HEAD_SHA\`"
+            echo
+            echo "### Operation-set changelog"
+            echo '```text'
+            cat drift-report.txt
+            echo '```'
+            echo
+            echo "### Maintainer: adopt upstream + regenerate"
+            echo
+            echo "1. Re-vendor — copy the upstream \`spec/json/*.json\` over \`specs/\` at the new HEAD."
+            echo "2. Bump \`specs.lock\`: set \`rev = \"$HEAD_SHA\"\` (and \`spec_count\` if a spec was added/removed)."
+            echo "3. Regenerate the IR: \`cargo run -p xtask -- codegen\`."
+            echo "4. Review the \`crates/core/generated/\` diff (this is the human review of the surface change),"
+            echo "   run \`cargo test --workspace\`, then open a PR with specs/ + specs.lock + generated/."
+            echo
+            echo "_Re-run locally: \`cargo xtask drift --upstream <clone>/${{ steps.pin.outputs.path }}\`._"
+          } > drift-body.md
+
+          # De-dup: one open issue at a time. Comment on the existing one instead of
+          # spawning a new issue every week.
+          existing=$(gh issue list --state open --label "$label" --json number --jq '.[0].number // empty')
+          if [ -n "$existing" ]; then
+            gh issue comment "$existing" --body-file drift-body.md
+            echo "commented on existing drift issue #$existing"
+          else
+            gh issue create \
+              --title "Spec drift: upstream sendgrid-oai changed" \
+              --label "$label" \
+              --body-file drift-body.md
+          fi

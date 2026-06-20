@@ -9,9 +9,11 @@
 //!   - [`build`]  — merge specs + tables → `Vec<OperationIr>` + schema map.
 //!   - [`emit`]   — deterministic (recursively key-sorted) JSON emit + write.
 //!   - [`codegen`]— orchestrate: parse → build → openapiv3/jsonschema gates → emit.
+//!   - [`drift`]  — semantic spec-drift detection (`cargo xtask drift`).
 
 pub mod build;
 pub mod codegen;
+pub mod drift;
 pub mod emit;
 pub mod schema;
 pub mod specs;

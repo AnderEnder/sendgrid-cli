@@ -1,0 +1,47 @@
+name: ci
+
+# Build / test / lint gate on every push + PR.
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  build-test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # Pin a concrete stable. This workspace is edition 2024 (needs >= 1.85) AND
+      # declares `rust-version = "1.96"` in the root Cargo.toml — cargo hard-errors
+      # if the active toolchain is below that, so the pin MUST be >= 1.96.
+      - name: Install Rust 1.96.0
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: "1.96.0"
+          components: clippy, rustfmt
+
+      - uses: Swatinem/rust-cache@v2
+
+      - name: Format check
+        run: cargo fmt --all -- --check
+
+      - name: Clippy (deny warnings)
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+      - name: Build
+        run: cargo build --workspace --all-targets
+
+      - name: Test
+        run: cargo test --workspace
+
+      # Codegen idempotence gate: regenerating the IR from the vendored specs +
+      # curated tables must reproduce the committed artifact byte-for-byte. A
+      # non-empty diff means someone changed specs/tables/codegen without
+      # re-running `cargo run -p xtask -- codegen` and committing the result.
+      - name: Codegen idempotence gate
+        run: |
+          cargo run -p xtask -- codegen
+          git diff --exit-code crates/core/generated/

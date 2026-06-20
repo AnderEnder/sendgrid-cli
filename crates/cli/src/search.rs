@@ -1,36 +1,37 @@
 //! `sendgrid search <terms>` — lexical search over the registry (the human
 //! mirror of the MCP `search_operations` meta-tool).
+//!
+//! Ranking, stemming, and filtering live in [`sendgrid_core::search`] so this
+//! subcommand ranks **identically** to the MCP surface (P5 unification): the same
+//! query surfaces the same op whichever interface an agent uses. This module only
+//! owns the human-readable presentation.
 
 use sendgrid_core::Registry;
 use sendgrid_core::ir::OperationIr;
+use sendgrid_core::search::{SearchFilters, search};
+
+/// Max hits printed before the "… N more" footer.
+const MAX: usize = 50;
 
 /// Run a search and print matches (id, summary, method+path) to stdout. Hidden
 /// ops are included only when `include_legacy` is set.
 pub fn run(terms: &[String], include_legacy: bool) -> i32 {
-    let needles: Vec<String> = terms.iter().map(|t| t.to_ascii_lowercase()).collect();
-    let registry = Registry::global();
-
-    let mut hits: Vec<(u32, &OperationIr)> = registry
-        .operations()
-        .iter()
-        .filter(|op| include_legacy || !op.hidden)
-        .filter_map(|op| {
-            let score = score(op, &needles);
-            (score > 0).then_some((score, op))
-        })
-        .collect();
-
-    // Highest score first, then stable by id for determinism.
-    hits.sort_by(|a, b| b.0.cmp(&a.0).then_with(|| a.1.id.cmp(&b.1.id)));
-
-    if hits.is_empty() {
-        eprintln!("no operations match: {}", terms.join(" "));
+    let query = terms.join(" ");
+    // Clap requires >=1 term, but guard the empty case so a stray call preserves
+    // the "no match" exit path rather than browse-listing every op.
+    if query.trim().is_empty() {
+        eprintln!("no operations match: {query}");
         return 1;
     }
 
-    const MAX: usize = 50;
-    let shown = hits.len().min(MAX);
-    for (_score, op) in hits.iter().take(MAX) {
+    let ops = ranked(&query, include_legacy);
+    if ops.is_empty() {
+        eprintln!("no operations match: {query}");
+        return 1;
+    }
+
+    let shown = ops.len().min(MAX);
+    for op in ops.iter().take(MAX) {
         let summary = op.summary.as_deref().unwrap_or("");
         let cli = op.cli_path.join(" ");
         println!("{}  [{} {}]", op.id, op.method, op.path);
@@ -39,49 +40,23 @@ pub fn run(terms: &[String], include_legacy: bool) -> i32 {
         }
         println!("    cli: sendgrid {cli}");
     }
-    if hits.len() > MAX {
-        eprintln!("… {} more (showing top {MAX})", hits.len() - shown);
+    if ops.len() > MAX {
+        eprintln!("… {} more (showing top {MAX})", ops.len() - shown);
     }
     0
 }
 
-/// Score an op against the lowercased needles. Every needle must hit some
-/// haystack field (AND semantics); id/summary hits weigh more than path hits.
-fn score(op: &OperationIr, needles: &[String]) -> u32 {
-    let id = op.id.to_ascii_lowercase();
-    let alias = op.id_alias.as_deref().unwrap_or("").to_ascii_lowercase();
-    let op_id = op.operation_id.to_ascii_lowercase();
-    let summary = op.summary.as_deref().unwrap_or("").to_ascii_lowercase();
-    let path = op.path.to_ascii_lowercase();
-    let domain = op.domain.to_ascii_lowercase();
-    let subgroup = op.subgroup.to_ascii_lowercase();
-    let cli = op.cli_path.join(" ").to_ascii_lowercase();
-    let tags = op.tags.join(" ").to_ascii_lowercase();
-
-    let mut total = 0u32;
-    for needle in needles {
-        let mut best = 0u32;
-        if id.contains(needle) || op_id.contains(needle) || alias.contains(needle) {
-            best = best.max(5);
-        }
-        if summary.contains(needle) {
-            best = best.max(4);
-        }
-        if tags.contains(needle) || domain.contains(needle) || subgroup.contains(needle) {
-            best = best.max(3);
-        }
-        if cli.contains(needle) {
-            best = best.max(2);
-        }
-        if path.contains(needle) {
-            best = best.max(1);
-        }
-        if best == 0 {
-            return 0; // this needle matched nothing → not a hit (AND).
-        }
-        total += best;
-    }
-    total
+/// Ranked ops for `query` (full result set, descending score) via the shared core
+/// ranking. `limit: None` returns every hit so `run` can render its own top-N.
+fn ranked(query: &str, include_legacy: bool) -> Vec<&'static OperationIr> {
+    let filters = SearchFilters {
+        include_legacy,
+        ..Default::default()
+    };
+    search(Registry::global(), query, &filters)
+        .into_iter()
+        .map(|hit| hit.op)
+        .collect()
 }
 
 #[cfg(test)]
@@ -96,6 +71,40 @@ mod tests {
 
     #[test]
     fn no_match_returns_nonzero() {
-        assert_eq!(run(&["zzz_no_such_op_xyz".to_string()], false), 1);
+        assert_eq!(run(&["qzxwvk".to_string()], false), 1);
+    }
+
+    #[test]
+    fn send_a_campaign_surfaces_singlesends() {
+        // Parity with the MCP `search_operations` tool: the failing smoke from P5
+        // ("send a campaign" returned nothing on the old AND-match CLI search) now
+        // surfaces a Single Sends op at the top via the shared ranking.
+        let ops = ranked("send a campaign", false);
+        assert!(!ops.is_empty(), "query must now return hits");
+        assert!(
+            ops[0].id.contains("singlesends"),
+            "top hit should be a Single Sends op, got {}",
+            ops[0].id
+        );
+    }
+
+    #[test]
+    fn hidden_excluded_without_include_legacy() {
+        // The hidden legacy SendCampaign op is excluded by default, present with
+        // --include-legacy — same gate as the MCP surface.
+        let default = ranked("send campaign", false);
+        assert!(
+            !default
+                .iter()
+                .any(|op| op.id == "sg_legacy_campaigns_SendCampaign"),
+            "hidden op must be excluded by default"
+        );
+        let legacy = ranked("send campaign", true);
+        assert!(
+            legacy
+                .iter()
+                .any(|op| op.id == "sg_legacy_campaigns_SendCampaign"),
+            "hidden op must appear with include_legacy"
+        );
     }
 }

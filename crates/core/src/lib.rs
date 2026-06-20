@@ -8,8 +8,10 @@
 pub mod ir;
 pub mod registry;
 pub mod runtime;
+pub mod search;
 
 pub use registry::Registry;
+pub use search::{SearchFilters, SearchHit};
 
 // The frozen runtime entrypoint + its contract types, re-exported at the crate
 // root for ergonomic consumption by the CLI/MCP crates.

@@ -24,3 +24,18 @@ jsonschema = "0.18"
 
 # Local path deps
 sendgrid-core = { path = "crates/core" }
+
+# Release profile — optimize the shipped `sendgrid` binary for size + startup.
+#   lto = true            cross-crate link-time optimization (smaller, faster)
+#   codegen-units = 1     maximal optimization at the cost of compile parallelism
+#   strip = true          drop debug symbols from the artifact (smaller binary)
+#   panic = "abort"       no unwinding tables; a panic aborts (the CLI exits anyway)
+# `panic = "abort"` applies only to the shipped binary. Cargo automatically builds
+# `test`/`bench` targets with `unwind` regardless of this setting, so BOTH
+# `cargo test` and `cargo test --release` build and pass unaffected (verified on
+# 1.96: `cargo test --release --no-run` compiles every test executable cleanly).
+[profile.release]
+lto = true
+codegen-units = 1
+strip = true
+panic = "abort"
