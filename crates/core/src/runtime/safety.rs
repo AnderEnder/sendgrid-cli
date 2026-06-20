@@ -60,9 +60,13 @@ impl Policy {
         Policy { allowed: READ }
     }
 
-    /// Build from an explicit set of classes.
+    /// Build from an explicit set of classes. **`Read` is always implied**: a
+    /// restricted policy like `--allow write` becomes `{Read, Write}`, never
+    /// `{Write}` alone — read access is what powers the discovery/verify loop an
+    /// agent relies on (a write-only policy would silently break it). To deny reads
+    /// too, use [`Policy::none`] (deny-all).
     pub fn from_classes(classes: impl IntoIterator<Item = SideEffect>) -> Self {
-        let mut allowed = 0;
+        let mut allowed = READ;
         for c in classes {
             allowed |= bit(c);
         }
@@ -260,6 +264,35 @@ mod tests {
         assert_eq!(denial.code, "E_POLICY_DENIED");
         // dry_run bypasses the gate.
         assert!(check_policy(erase, &Policy::read_only(), true).is_ok());
+    }
+
+    #[test]
+    fn from_classes_always_implies_read() {
+        // `--allow write` → {Read, Write}: Read is implied so the discovery loop
+        // keeps working; Write is granted; Destructive/Send stay denied.
+        let p = Policy::from_classes([SideEffect::Write]);
+        assert!(p.allows(SideEffect::Read), "Read must be implied");
+        assert!(p.allows(SideEffect::Write));
+        assert!(!p.allows(SideEffect::Destructive));
+        assert!(!p.allows(SideEffect::Send));
+
+        // `--allow send` → {Read, Send}.
+        let p = Policy::from_classes([SideEffect::Send]);
+        assert!(p.allows(SideEffect::Read));
+        assert!(p.allows(SideEffect::Send));
+        assert!(!p.allows(SideEffect::Write));
+
+        // read_only() is still exactly {Read}.
+        let ro = Policy::read_only();
+        assert!(ro.allows(SideEffect::Read));
+        assert!(!ro.allows(SideEffect::Write));
+        assert!(!ro.allows(SideEffect::Destructive));
+        assert!(!ro.allows(SideEffect::Send));
+
+        // none() is still deny-all (NOT touched by the implied-Read rule).
+        let n = Policy::none();
+        assert!(!n.allows(SideEffect::Read));
+        assert!(!n.allows(SideEffect::Write));
     }
 
     #[test]

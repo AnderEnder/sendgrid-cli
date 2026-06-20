@@ -50,3 +50,37 @@ fn embedded_artifact_loads_into_a_working_registry() {
         .expect("a body-less op");
     assert!(r.schema_for(read).is_none());
 }
+
+#[test]
+fn response_schema_accessor_round_trips() {
+    // P6 item 7: the embedded primary success-response schema is retrievable via the
+    // new sibling-facing accessor. CreateApiKey documents a 201 body.
+    let r = Registry::global();
+    let create = r
+        .by_id("sg_security_api_keys_CreateApiKey")
+        .expect("CreateApiKey");
+    assert!(
+        create.response_schema_id.is_some(),
+        "CreateApiKey should carry a response_schema_id"
+    );
+    let resp = r
+        .response_schema(create)
+        .expect("response_schema resolves for CreateApiKey");
+    assert!(
+        resp.is_object(),
+        "response schema should be a JSON Schema object"
+    );
+    assert_eq!(
+        r.response_schema(create),
+        r.schema(create.response_schema_id.as_deref().unwrap()),
+        "accessor matches the keyed lookup"
+    );
+
+    // Most ops carry one (codegen reported 319); spot-check the population is real.
+    let with = r
+        .operations()
+        .iter()
+        .filter(|o| o.response_schema_id.is_some())
+        .count();
+    assert!(with >= 300, "expected many response schemas, got {with}");
+}

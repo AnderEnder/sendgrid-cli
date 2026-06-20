@@ -51,6 +51,9 @@ pub struct Safety {
     pub secret_request_fields_global: Vec<String>,
     #[serde(default)]
     pub secret_response_fields: Vec<SecretResponse>,
+    /// Intended-output response fields exempted from the generic SG-key pattern scrub.
+    #[serde(default)]
+    pub reveal_response_fields: Vec<SecretResponse>,
     #[serde(default)]
     pub bulk_triggers: Vec<BulkTriggerEntry>,
 }
@@ -167,6 +170,7 @@ pub struct Tables {
     pub global_only_set: BTreeSet<String>,
     pub known_verbs: BTreeSet<String>,
     pub secret_response_by_op: HashMap<String, Vec<String>>,
+    pub reveal_response_by_op: HashMap<String, Vec<String>>,
     pub pagination_override_by_op: HashMap<String, PaginationOverride>,
     pub comma_join_by_op: HashMap<String, BTreeSet<String>>,
     pub bulk_by_op: HashMap<String, Vec<BulkTriggerEntry>>,
@@ -201,6 +205,12 @@ impl Tables {
 
         let secret_response_by_op = safety
             .secret_response_fields
+            .iter()
+            .map(|s| (s.op.clone(), s.fields.clone()))
+            .collect();
+
+        let reveal_response_by_op = safety
+            .reveal_response_fields
             .iter()
             .map(|s| (s.op.clone(), s.fields.clone()))
             .collect();
@@ -269,6 +279,7 @@ impl Tables {
             global_only_set,
             known_verbs,
             secret_response_by_op,
+            reveal_response_by_op,
             pagination_override_by_op,
             comma_join_by_op,
             bulk_by_op,

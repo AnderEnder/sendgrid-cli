@@ -99,6 +99,22 @@ fn key_regex() -> &'static regex::Regex {
 /// type (no `Serialize`/redacted `Debug`) and field-level response redaction. Use
 /// it over any free-form string (error messages, log lines) before emission.
 pub fn scrub(text: &str, known: Option<&ApiKey>) -> String {
+    scrub_inner(text, known, true)
+}
+
+/// Like [`scrub`] but **without** the generic `SG.<id>.<secret>` pattern replacement.
+///
+/// For responses that intentionally reveal a freshly-minted SendGrid key (the
+/// `CreateApiKey` product decision): the configured *auth* key is STILL removed
+/// verbatim and any `Bearer <token>` is STILL redacted, so the credential the
+/// runtime holds can never leak — but a created key that is *not* the auth key
+/// survives. Apply only to the success body of an op whose IR lists
+/// `reveal_response_fields`; never to request previews or warnings.
+pub fn scrub_keep_sg_pattern(text: &str, known: Option<&ApiKey>) -> String {
+    scrub_inner(text, known, false)
+}
+
+fn scrub_inner(text: &str, known: Option<&ApiKey>, sg_pattern: bool) -> String {
     let mut out = text.to_string();
     if let Some(k) = known {
         let raw = k.expose();
@@ -106,7 +122,9 @@ pub fn scrub(text: &str, known: Option<&ApiKey>) -> String {
             out = out.replace(raw, "SG.[REDACTED]");
         }
     }
-    out = key_regex().replace_all(&out, "SG.[REDACTED]").into_owned();
+    if sg_pattern {
+        out = key_regex().replace_all(&out, "SG.[REDACTED]").into_owned();
+    }
     out = bearer_regex()
         .replace_all(&out, "Bearer [REDACTED]")
         .into_owned();
@@ -124,21 +142,32 @@ fn bearer_regex() -> &'static regex::Regex {
 /// non-curated positions — it never re-creates the Blocker-1 "redact-vs-break"
 /// dilemma for the curated reveal path.
 pub fn scrub_value(value: &mut serde_json::Value, known: Option<&ApiKey>) {
+    scrub_value_inner(value, known, true)
+}
+
+/// Deep scrub variant that PRESERVES values matching the generic SG-key pattern
+/// (it still removes the configured auth key verbatim + `Bearer` tokens). See
+/// [`scrub_keep_sg_pattern`]; use only on the success body of a reveal op.
+pub fn scrub_value_keep_sg_pattern(value: &mut serde_json::Value, known: Option<&ApiKey>) {
+    scrub_value_inner(value, known, false)
+}
+
+fn scrub_value_inner(value: &mut serde_json::Value, known: Option<&ApiKey>, sg_pattern: bool) {
     match value {
         serde_json::Value::String(s) => {
-            let scrubbed = scrub(s, known);
+            let scrubbed = scrub_inner(s, known, sg_pattern);
             if &scrubbed != s {
                 *s = scrubbed;
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr.iter_mut() {
-                scrub_value(v, known);
+                scrub_value_inner(v, known, sg_pattern);
             }
         }
         serde_json::Value::Object(map) => {
             for v in map.values_mut() {
-                scrub_value(v, known);
+                scrub_value_inner(v, known, sg_pattern);
             }
         }
         _ => {}

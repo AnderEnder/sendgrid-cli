@@ -179,21 +179,26 @@ async fn governed_obo_not_in_allowlist_is_rejected() {
 }
 
 #[tokio::test]
-async fn create_api_key_response_secret_is_redacted() {
+async fn create_api_key_reveals_created_key_but_hides_auth_key() {
+    // Product decision (P6 item 10): the NEWLY-created key is the intended output and
+    // must be REVEALED, while the configured AUTH key is still removed everywhere.
     let r = Registry::global();
     let op = r
         .by_id("sg_security_api_keys_CreateApiKey")
         .expect("CreateApiKey");
 
-    // A freshly-created, real-shaped key returned in the 201 body.
+    // A freshly-created, real-shaped key returned in the 201 body (≠ the auth key).
     const CREATED_KEY: &str =
         "SG.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+    // The response ALSO echoes the configured auth key (a different, real-shaped SG
+    // key) in another field — it must still be removed verbatim even on a reveal op.
     let dispatcher = MockDispatcher::new(vec![(
         201,
         json!({
             "api_key": CREATED_KEY,
             "api_key_id": "abc123",
             "name": "my key",
+            "created_by": CONFIG_KEY,
             "scopes": ["mail.send"]
         }),
     )]);
@@ -208,18 +213,205 @@ async fn create_api_key_response_secret_is_redacted() {
 
     assert!(result.is_success(), "201 is success");
     assert_eq!(result.status, 201);
-    // The secret field is redacted in `data` (curated `secret_response_fields`).
-    assert_eq!(result.data().unwrap()["api_key"], json!("[REDACTED]"));
+    // The created key is REVEALED (not field-redacted, not SG-pattern scrubbed).
+    assert_eq!(result.data().unwrap()["api_key"], json!(CREATED_KEY));
+    // The configured auth key is STILL removed verbatim, even in this revealed body.
+    assert_ne!(result.data().unwrap()["created_by"], json!(CONFIG_KEY));
     // Non-secret fields survive.
     assert_eq!(result.data().unwrap()["name"], json!("my key"));
 
-    // The created key never appears anywhere in the serialized envelope, and
-    // neither does the configured key.
     let serialized = serde_json::to_string(&result).unwrap();
-    assert!(!serialized.contains(CREATED_KEY), "created key leaked");
-    assert!(!serialized.contains("SG.AAAA"), "created key prefix leaked");
-    assert!(!serialized.contains(CONFIG_KEY), "config key leaked");
-    assert!(serialized.contains("[REDACTED]"));
+    // The created key is present...
+    assert!(
+        serialized.contains(CREATED_KEY),
+        "created key must be revealed"
+    );
+    // ...but the configured AUTH key is STILL absent everywhere (the invariant).
+    assert!(
+        !serialized.contains(CONFIG_KEY),
+        "configured auth key leaked"
+    );
+}
+
+#[tokio::test]
+async fn paginate_all_offset_continuation_hint_points_forward() {
+    // P6 item 3: when `--all` stops at the item cap, the offset hint must point at the
+    // NEXT uncovered page (start_offset + items_collected), not the page just fetched
+    // (the old bug, which made a resume re-fetch/overlap).
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_account_provisioning_ListAccount") // offset paginator, data_key=accounts
+        .expect("ListAccount");
+    let page = || {
+        (
+            200u16,
+            json!({ "accounts": [ { "id": "a" }, { "id": "b" } ] }),
+        )
+    };
+    let dispatcher = MockDispatcher::new(vec![page(), page()]);
+
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.max_items = 4; // two full pages of 2 → cap after page 2
+    let result = execute_with(
+        &c,
+        op,
+        json!({ "query": { "limit": 2, "offset": 0 } }),
+        &dispatcher,
+    )
+    .await;
+
+    assert!(result.is_success());
+    assert_eq!(result.data().unwrap().as_array().unwrap().len(), 4);
+    let next = result.next.expect("cap reached → continuation hint");
+    assert_eq!(
+        next["offset"],
+        json!(4),
+        "hint must point past covered offsets"
+    );
+    assert_eq!(next["limit"], json!(2));
+}
+
+#[tokio::test]
+async fn paginate_all_offset_hint_correct_when_last_page_truncated() {
+    // P6 item 3 (the case where `start_offset + items_collected` beats the naive
+    // `last_offset + limit`): limit=3, cap=4 → page 2 overshoots and its tail is
+    // dropped. The hint must be 4 (covered offsets 0..4), NOT 6 (offset+limit).
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_account_provisioning_ListAccount")
+        .expect("ListAccount");
+    let page = || {
+        (
+            200u16,
+            json!({ "accounts": [ { "id": "x" }, { "id": "y" }, { "id": "z" } ] }),
+        )
+    };
+    let dispatcher = MockDispatcher::new(vec![page(), page()]);
+
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.max_items = 4; // page 1 = 3, page 2 overshoots to 6 → truncated to 4
+    let result = execute_with(&c, op, json!({ "query": { "limit": 3 } }), &dispatcher).await;
+
+    assert!(result.is_success());
+    assert_eq!(result.data().unwrap().as_array().unwrap().len(), 4);
+    let next = result.next.expect("cap reached → continuation hint");
+    assert_eq!(
+        next["offset"],
+        json!(4),
+        "hint must reflect items actually kept, not last_offset+limit"
+    );
+}
+
+#[tokio::test]
+async fn paginate_all_page_number_continuation_hint_advances() {
+    // P6 item 3 (page-number variant): the hint must be last_page + 1.
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_legacy_contactdb_ListRecipient") // page_number, data_key=recipients
+        .expect("ListRecipient");
+    let page = || {
+        (
+            200u16,
+            json!({ "recipients": [ { "id": "r1" }, { "id": "r2" } ] }),
+        )
+    };
+    let dispatcher = MockDispatcher::new(vec![page(), page()]);
+
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.max_items = 4;
+    let result = execute_with(
+        &c,
+        op,
+        json!({ "query": { "page_size": 2, "page": 1 } }),
+        &dispatcher,
+    )
+    .await;
+
+    assert!(result.is_success());
+    let next = result.next.expect("cap reached → continuation hint");
+    assert_eq!(
+        next["page"],
+        json!(3),
+        "hint must be last_page + 1 (fetched 1 and 2)"
+    );
+}
+
+#[tokio::test]
+async fn paginate_all_warns_when_cursor_op_lacks_envelope() {
+    // P6 item 4: a cursor op whose response carries NO cursor envelope (`_metadata`)
+    // — the schema-less engagement-quality ops — must surface a visible warning rather
+    // than silently under-fetching (fetching only page 1).
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_stats_engagement_quality_ListEngagementQualityScore")
+        .expect("ListEngagementQualityScore");
+    // Non-empty result, but no `_metadata` envelope → cannot continue.
+    let dispatcher = MockDispatcher::new(vec![(
+        200,
+        json!({ "result": [ { "score": 1 }, { "score": 2 } ] }),
+    )]);
+
+    let mut c = cfg();
+    c.paginate_all = true;
+    let result = execute_with(
+        &c,
+        op,
+        json!({ "query": { "from": "2026-01-01", "to": "2026-02-01" } }),
+        &dispatcher,
+    )
+    .await;
+
+    assert!(result.is_success());
+    assert!(
+        result
+            .warnings
+            .iter()
+            .any(|w| w.contains("no continuation cursor")),
+        "expected an under-fetch warning, got {:?}",
+        result.warnings
+    );
+}
+
+#[tokio::test]
+async fn paginate_all_real_cursor_op_completes_without_spurious_warning() {
+    // P6 item 4 (the don't-over-warn half): a genuine cursor op (IP) whose last page
+    // carries the `_metadata` envelope with no next cursor is a CLEAN end — it must
+    // paginate fully and NOT emit the under-fetch warning.
+    let r = Registry::global();
+    let op = r.by_id("sg_ips_manage_ListIp").expect("ListIp");
+    let dispatcher = MockDispatcher::new(vec![
+        (
+            200,
+            json!({ "result": [ { "ip": "1.1.1.1" } ],
+                    "_metadata": { "next_params": { "after_key": "TOK" } } }),
+        ),
+        (
+            200,
+            json!({ "result": [ { "ip": "2.2.2.2" } ], "_metadata": {} }),
+        ),
+    ]);
+
+    let mut c = cfg();
+    c.paginate_all = true;
+    let result = execute_with(&c, op, json!({ "query": { "limit": 100 } }), &dispatcher).await;
+
+    assert!(result.is_success());
+    assert_eq!(
+        result.data().unwrap().as_array().unwrap().len(),
+        2,
+        "both pages collected"
+    );
+    assert!(
+        !result
+            .warnings
+            .iter()
+            .any(|w| w.contains("no continuation cursor")),
+        "must NOT warn on a real cursor op's clean last page: {:?}",
+        result.warnings
+    );
 }
 
 #[tokio::test]

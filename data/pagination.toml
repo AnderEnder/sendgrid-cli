@@ -42,15 +42,22 @@ inject_param = "after_key"
 # --- seq: both engagement-quality lists are cursor_key via the `after_key` query
 #     param (SeqAfterKey). Their responses are schema-less, so offline derivation
 #     can't see a cursor; ListEngagementQualityScore (from/to only) would otherwise
-#     classify `none` (review-completeness G5). Both GETs return 202. ---
+#     classify `none` (review-completeness G5). Both GETs return 202.
+#     cursor_path is the documented SendGrid cursor envelope (`_metadata.next_params
+#     .after_key`, as the IP cursor ops use). Because the spec carries no response
+#     schema, this is a best-effort path: if the live response does NOT expose that
+#     envelope, the `--all` engine emits a visible "could not locate a continuation
+#     cursor" warning rather than silently under-fetching (P6 item 4). ---
 [[overrides]]
 op = "seq.ListEngagementQualityScore"
 kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
 inject_param = "after_key"
 
 [[overrides]]
 op = "seq.ListSubuserEngagementQualityScore"
 kind = "cursor_key"
+cursor_path = "_metadata.next_params.after_key"
 inject_param = "after_key"
 
 # --- comma-join: 3 array `ids` query params declare NO style/explode, so the

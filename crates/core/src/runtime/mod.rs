@@ -33,7 +33,9 @@ use crate::registry::Registry;
 use serde_json::{Map, Value};
 
 pub use auth::{ApiKey, AuthError};
-pub use dispatch::{DispatchError, DispatchResponse, OperationDispatcher, ReqwestDispatcher};
+pub use dispatch::{
+    DispatchError, DispatchResponse, OperationDispatcher, RawResponse, ReqwestDispatcher,
+};
 pub use envelope::{ExecuteResult, Payload};
 pub use jobs::{JobError, PollConfig, await_job, external_download, external_upload};
 pub use region::Region;
@@ -113,11 +115,10 @@ pub async fn execute_with<D: OperationDispatcher>(
     args: Value,
     dispatcher: &D,
 ) -> ExecuteResult {
-    let se = op.side_effect;
     let result = run(cfg, op, args, dispatcher).await;
     // Belt-and-suspenders: scrub any stray key-shaped text from the whole
     // envelope (payload + preview + warnings) AFTER field-level redaction.
-    finalize(result, &cfg.api_key, se)
+    finalize(result, &cfg.api_key, op)
 }
 
 async fn run<D: OperationDispatcher>(
@@ -269,7 +270,7 @@ async fn run_paginated<D: OperationDispatcher>(
             mut items,
             next,
             last_status,
-            warning,
+            warnings: page_warnings,
         } => {
             // Field-redact secret response fields across every accumulated item.
             for item in items.iter_mut() {
@@ -277,7 +278,7 @@ async fn run_paginated<D: OperationDispatcher>(
             }
             let status = if last_status == 0 { 200 } else { last_status };
             let mut all_warnings = warnings;
-            all_warnings.extend(warning);
+            all_warnings.extend(page_warnings);
             ExecuteResult::success(status, se, Value::Array(items))
                 .with_next(next)
                 .with_warnings(all_warnings)
@@ -322,8 +323,16 @@ fn map_response(op: &OperationIr, resp: DispatchResponse) -> ExecuteResult {
 }
 
 /// Final redaction pass over the whole envelope.
-fn finalize(mut result: ExecuteResult, key: &ApiKey, _se: crate::ir::SideEffect) -> ExecuteResult {
+///
+/// The configured auth key is removed verbatim everywhere (always). The generic
+/// `SG.<id>.<secret>` pattern scrub is also applied everywhere EXCEPT the success
+/// body of a `reveal_response_fields` op (e.g. `CreateApiKey`), where the newly
+/// created key — the intended output — must survive. Request previews and warnings
+/// are always fully scrubbed (a preview is the *request*, never the created key).
+fn finalize(mut result: ExecuteResult, key: &ApiKey, op: &OperationIr) -> ExecuteResult {
+    let reveal = !op.reveal_response_fields.is_empty();
     match &mut result.payload {
+        Payload::Data(v) if reveal => auth::scrub_value_keep_sg_pattern(v, Some(key)),
         Payload::Data(v) | Payload::Error(v) => auth::scrub_value(v, Some(key)),
     }
     if let Some(preview) = result.request_preview.as_mut() {

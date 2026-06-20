@@ -101,6 +101,16 @@ impl Registry {
         op.body_schema_id.as_deref().and_then(|id| self.schema(id))
     }
 
+    /// The normalized (JSON Schema 2020-12) primary success-**response** schema for
+    /// an operation, if one was embedded (keyed by `response_schema_id`). Shares the
+    /// same schema map as request bodies, so a request/response that reference the
+    /// same component resolve to one entry.
+    pub fn response_schema(&self, op: &OperationIr) -> Option<&Value> {
+        op.response_schema_id
+            .as_deref()
+            .and_then(|id| self.schema(id))
+    }
+
     /// Number of embedded input schemas.
     pub fn schema_count(&self) -> usize {
         self.schemas.len()

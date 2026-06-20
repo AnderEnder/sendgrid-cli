@@ -23,9 +23,10 @@ pub(crate) enum PaginateOutcome {
         last_status: u16,
         /// Continuation hint when stopped at a cap (else `None`).
         next: Option<Value>,
-        /// A one-shot warning when a page's result array could not be located
-        /// (the engine collected nothing rather than wrapping the envelope).
-        warning: Option<String>,
+        /// Non-fatal warnings accumulated across pages (e.g. a page's result array
+        /// could not be located, or a cursor op found no continuation cursor). Each
+        /// distinct warning is emitted at most once.
+        warnings: Vec<String>,
     },
     /// A page returned a non-2xx status — stop and surface it verbatim.
     HttpError { status: u16, body: Value },
@@ -58,6 +59,9 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
         .and_then(|m| read_u64(m, "limit"))
         .or_else(|| q().and_then(|m| read_u64(m, "page_size")));
     let mut offset = q().and_then(|m| read_u64(m, "offset")).unwrap_or(0);
+    // The caller's STARTING offset — fixed for the run. The next-page hint is computed
+    // relative to it (`start_offset + items_collected`), not the mutating `offset`.
+    let start_offset = offset;
     let mut page = q().and_then(|m| read_u64(m, "page")).unwrap_or(1);
     // Cursor token may be pre-seeded (resume from a continuation hint).
     let mut cursor: Option<String> =
@@ -65,8 +69,9 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
 
     let mut items: Vec<Value> = Vec::new();
     let mut pages = 0usize;
-    // Set at most once: a page whose result array could not be located at all.
-    let mut extract_warning: Option<String> = None;
+    // Non-fatal warnings accumulated across pages (each emitted at most once).
+    let mut warnings: Vec<String> = Vec::new();
+    let mut warned_extract = false;
 
     loop {
         // Inject the current cursor/offset/page into the query bucket.
@@ -111,8 +116,9 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
         let page_items = match extract_items(&resp.body, data_key) {
             Some(arr) => arr,
             None => {
-                if extract_warning.is_none() {
-                    extract_warning = Some(format!(
+                if !warned_extract {
+                    warned_extract = true;
+                    warnings.push(format!(
                         "--all: could not locate a result array (data_key={:?}) in a page of \
                          `{}`; collected 0 items for it — the response shape may have changed",
                         data_key, op.id
@@ -128,12 +134,20 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
         // Caps: stop with a continuation hint.
         if items.len() >= max_items || pages >= max_pages {
             truncate(&mut items, max_items);
+            // The hint must point at the NEXT uncovered page, not the one just
+            // fetched (else a resume re-fetches/overlaps it). For offset, the next
+            // uncovered offset is `start_offset + items_collected`: pages continue
+            // only while full, so collected items map 1:1 onto covered offsets — and
+            // this stays correct even when truncation drops the tail of the last page.
+            // For page numbers it is `last_page + 1`.
+            let next_offset = start_offset + items.len() as u64;
+            let next_page = page + 1;
             let next = next_hint(
                 kind,
                 inject,
-                offset,
+                next_offset,
                 limit,
-                page,
+                next_page,
                 &resp.body,
                 cursor_path,
                 data_key,
@@ -142,7 +156,7 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
                 items,
                 last_status,
                 next,
-                warning: extract_warning,
+                warnings,
             };
         }
 
@@ -169,6 +183,26 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
                 cursor = cursor_path
                     .and_then(|p| dotted(&resp.body, p))
                     .map(|v| value_to_string(&v));
+                // Visible warning (not silent under-fetch) when we stop because no
+                // continuation cursor was found on a NON-EMPTY page AND the cursor
+                // envelope is absent — i.e. the response doesn't paginate the way the
+                // IR expects (the 2 `seq` engagement-quality ops have schema-less,
+                // undocumented responses). A legitimate last page of a real cursor op
+                // (the IP ops) carries the envelope (`_metadata`) with no `after_key`,
+                // so it does NOT warn. Strictly additive: never changes `done`.
+                if cursor.is_none()
+                    && page_len > 0
+                    && !cursor_envelope_present(&resp.body, cursor_path)
+                {
+                    warnings.push(format!(
+                        "--all: `{}` is configured for cursor pagination but no continuation \
+                         cursor was found (looked for `{}`); stopped after {} item(s) — results \
+                         may be incomplete if the endpoint paginates differently than documented",
+                        op.id,
+                        cursor_path.unwrap_or("<unset>"),
+                        items.len()
+                    ));
+                }
                 cursor.is_none()
             }
         };
@@ -177,7 +211,7 @@ pub(crate) async fn paginate_all<D: OperationDispatcher>(
                 items,
                 last_status,
                 next: None,
-                warning: extract_warning,
+                warnings,
             };
         }
     }
@@ -286,6 +320,18 @@ fn value_to_string(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
         other => other.to_string(),
+    }
+}
+
+/// Whether the cursor envelope is present in a response body — i.e. the FIRST
+/// segment of the dotted `cursor_path` (e.g. `_metadata`) exists. A real cursor op
+/// emits this envelope on every page (the next-cursor is simply absent on the last);
+/// an op that emits NO such container isn't paginating the documented way, so the
+/// engine warns rather than under-fetch silently. `None` cursor_path ⇒ no envelope.
+fn cursor_envelope_present(body: &Value, cursor_path: Option<&str>) -> bool {
+    match cursor_path.and_then(|p| p.split('.').next()) {
+        Some(seg) => body.get(seg).is_some(),
+        None => false,
     }
 }
 

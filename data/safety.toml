@@ -37,8 +37,18 @@ destructive_path_substrings = [":batchDelete", "erasejob"]
 secret_request_fields_global = ["password", "oauth_client_secret", "client_secret"]
 
 # --- secret response fields: values to redact from response `data` by default. ---
-# Only CreateApiKey's 201 returns a live key (review-security S1 / BLOCKER 1).
-[[secret_response_fields]]
+# (none currently — CreateApiKey's created key is now an intended output; see
+# `reveal_response_fields` below. Add entries here for any op whose response echoes
+# a secret that must be hidden.)
+
+# --- reveal response fields: intended-output credentials that must be SHOWN. ---
+# Product decision (BLOCKER 1 follow-up): CreateApiKey's 201 returns the NEWLY-created
+# API key — that key is the whole point of the call, so it must be revealed. Listing
+# it here (a) drops it from `secret_response_fields` (no field-level redaction) AND
+# (b) exempts this op's response from the generic defense-in-depth `SG.<id>.<secret>`
+# pattern scrub. The configured AUTH key (≠ the created key) is STILL removed verbatim
+# everywhere, so the credential the runtime holds can never leak.
+[[reveal_response_fields]]
 op = "api_keys.CreateApiKey"
 fields = ["api_key"]
 

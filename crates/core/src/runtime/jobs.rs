@@ -14,7 +14,7 @@
 //!   host like S3/Azure would leak it). The URL is absolute and region-appropriate
 //!   (it comes from the in-region API response), so residency is preserved.
 
-use super::dispatch::{DispatchError, DispatchResponse, OperationDispatcher};
+use super::dispatch::{DispatchError, DispatchResponse, OperationDispatcher, RawResponse};
 use super::{ExecuteResult, RuntimeConfig, execute_with};
 use crate::ir::OperationIr;
 use serde_json::Value;
@@ -143,7 +143,8 @@ pub async fn external_upload<D: OperationDispatcher>(
         .build()
         .map_err(|e| JobError::Build(e.to_string()))?;
     // Invariant: we never attach the SendGrid credential to a third-party host.
-    debug_assert!(
+    // `assert!` (not `debug_assert!`) so the guarantee holds in release builds too.
+    assert!(
         req.headers().get(reqwest::header::AUTHORIZATION).is_none(),
         "external upload must not carry the SendGrid bearer"
     );
@@ -152,20 +153,25 @@ pub async fn external_upload<D: OperationDispatcher>(
 
 /// GET a presigned download URL (the `presigned_url` / `urls` a CSV export job
 /// returns). Same no-bearer guarantee as [`external_upload`].
+///
+/// Returns the status + **raw response body bytes** (via
+/// [`OperationDispatcher::dispatch_bytes`]) — NOT a parsed `serde_json::Value` — so a
+/// gzipped/binary export round-trips byte-for-byte for the caller to write to disk.
 pub async fn external_download<D: OperationDispatcher>(
     dispatcher: &D,
     client: &reqwest::Client,
     url: &str,
-) -> Result<DispatchResponse, JobError> {
+) -> Result<RawResponse, JobError> {
     let req = client
         .get(url)
         .build()
         .map_err(|e| JobError::Build(e.to_string()))?;
-    debug_assert!(
+    // `assert!` (not `debug_assert!`) so the no-bearer guarantee holds in release.
+    assert!(
         req.headers().get(reqwest::header::AUTHORIZATION).is_none(),
         "external download must not carry the SendGrid bearer"
     );
-    Ok(dispatcher.dispatch(req).await?)
+    Ok(dispatcher.dispatch_bytes(req).await?)
 }
 
 #[cfg(test)]
@@ -308,13 +314,17 @@ mod tests {
         .await
         .expect("upload dispatched");
 
-        external_download(
+        let dl = external_download(
             &dispatcher,
             &client,
             "https://dl.example.com/presigned?sig=xyz",
         )
         .await
         .expect("download dispatched");
+        // The download now returns raw bytes (default dispatch_bytes re-encodes the
+        // canned text body here; the real binary round-trip is covered separately).
+        assert_eq!(dl.status.as_u16(), 200);
+        assert_eq!(dl.bytes, b"ok");
 
         let reqs = dispatcher.requests.lock().unwrap();
         assert_eq!(reqs.len(), 2);
@@ -338,5 +348,32 @@ mod tests {
             "text/csv"
         );
         assert_eq!(reqs[1].method(), reqwest::Method::GET);
+    }
+
+    #[tokio::test]
+    async fn external_download_round_trips_binary_bytes() {
+        // The REAL transport (ReqwestDispatcher::dispatch_bytes) must return the
+        // verbatim wire bytes — no JSON parse, no lossy UTF-8 — so a gzipped/binary
+        // export survives. Non-UTF8 bytes (incl. an embedded NUL + 0xFF) prove it;
+        // the default re-encode path (the test above) could not.
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+
+        let server = MockServer::start().await;
+        let payload: Vec<u8> = vec![0x1f, 0x8b, 0x08, 0x00, 0x00, 0xff, 0xfe, 0x42, 0x00, 0x99];
+        Mock::given(method("GET"))
+            .and(path("/export.csv.gz"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(payload.clone()))
+            .mount(&server)
+            .await;
+
+        let client = http::build_client();
+        let dispatcher = crate::ReqwestDispatcher::with_client(client.clone());
+        let url = format!("{}/export.csv.gz", server.uri());
+        let resp = external_download(&dispatcher, &client, &url)
+            .await
+            .expect("download dispatched");
+        assert_eq!(resp.status.as_u16(), 200);
+        assert_eq!(resp.bytes, payload, "binary bytes must round-trip verbatim");
     }
 }

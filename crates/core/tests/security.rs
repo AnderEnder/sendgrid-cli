@@ -1,8 +1,8 @@
 //! **Security tests** — the hard, always-on guarantees, consolidated.
 //!
-//! 1. A freshly-minted credential in a 201 body never appears anywhere in the
-//!    serialized [`ExecuteResult`] (field redaction + belt-and-suspenders scrub),
-//!    over the real transport.
+//! 1. CreateApiKey's freshly-minted key (the intended output) IS revealed in the
+//!    serialized [`ExecuteResult`], while the configured AUTH key is still removed
+//!    everywhere — over the real transport (P6 item 10 product decision).
 //! 2. `password` / `*_secret` request fields are redacted from `request_preview`.
 //! 3. A caller-supplied `on-behalf-of` in the args header bucket is dropped
 //!    (impersonation is governed-only).
@@ -36,11 +36,12 @@ impl OperationDispatcher for NeverDispatcher {
     }
 }
 
-/// **(1) No credential leak.** CreateApiKey returns a real key in its 201 body; the
-/// key must be field-redacted in `data` and absent from the *entire* serialized
-/// envelope. Driven over the real transport against a mock.
+/// **(1) Reveal the created key; never the auth key.** CreateApiKey returns the
+/// freshly-minted key in its 201 body — the intended output, so it must be REVEALED.
+/// The configured AUTH key (a *different* SG key) must still be absent everywhere.
+/// Driven over the real transport against a mock.
 #[tokio::test]
-async fn created_api_key_is_absent_from_serialized_result() {
+async fn created_api_key_is_revealed_but_configured_auth_key_is_not() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))
         .and(path("/v3/api_keys"))
@@ -48,6 +49,9 @@ async fn created_api_key_is_absent_from_serialized_result() {
             "api_key": CREATED_KEY,
             "api_key_id": "abc123",
             "name": "my key",
+            // The response also echoes the configured auth key in another field; the
+            // reveal exemption must NOT let this (a different SG key) survive.
+            "created_by": CONFIG_KEY,
             "scopes": ["mail.send"]
         })))
         .mount(&server)
@@ -65,7 +69,8 @@ async fn created_api_key_is_absent_from_serialized_result() {
 
     assert!(result.is_success());
     assert_eq!(result.status, 201);
-    assert_eq!(result.data().unwrap()["api_key"], json!("[REDACTED]"));
+    // The created key is the intended output → revealed verbatim.
+    assert_eq!(result.data().unwrap()["api_key"], json!(CREATED_KEY));
     assert_eq!(
         result.data().unwrap()["name"],
         json!("my key"),
@@ -73,9 +78,16 @@ async fn created_api_key_is_absent_from_serialized_result() {
     );
 
     let serialized = serde_json::to_string(&result).unwrap();
-    assert!(!serialized.contains(CREATED_KEY), "created key leaked");
-    assert!(!serialized.contains("SG.AAAA"), "created key prefix leaked");
-    assert!(!serialized.contains(CONFIG_KEY), "config key leaked");
+    assert!(
+        serialized.contains(CREATED_KEY),
+        "created key must be revealed"
+    );
+    // The security invariant that still holds: the configured auth key never leaks,
+    // even when the (revealed) response body echoes it verbatim in another field.
+    assert!(
+        !serialized.contains(CONFIG_KEY),
+        "configured auth key leaked"
+    );
 }
 
 /// **(2) Secret request fields redacted in the preview.** A dry-run CreateSubuser
@@ -169,6 +181,52 @@ async fn caller_supplied_on_behalf_of_is_dropped() {
     assert!(
         !serialized.contains("SG.attacker"),
         "injected caller token leaked"
+    );
+}
+
+/// **(5) Wrong-typed secret never leaks via a validation error.** jsonschema embeds
+/// the offending instance VALUE verbatim in its message, so a `password` sent as a
+/// number / object on CreateSubuser would leak into the `E_VALIDATION` envelope. The
+/// validator must reject it with NO secret value anywhere in the serialized result.
+/// At execute() level (NeverDispatcher proves it fails pre-flight, before any send).
+#[tokio::test]
+async fn wrong_typed_secret_value_never_leaks_in_validation_error() {
+    let c = RuntimeConfig::new(ApiKey::new(CONFIG_KEY));
+
+    // (a) numeric password.
+    let numeric = execute_with(
+        &c,
+        op("sg_account_subusers_CreateSubuser"),
+        json!({ "body": {
+            "username": "sub1", "email": "sub1@example.com",
+            "password": 918273645, "ips": ["1.2.3.4"]
+        }}),
+        &NeverDispatcher,
+    )
+    .await;
+    assert_eq!(numeric.code.as_deref(), Some("E_VALIDATION"));
+    let s = serde_json::to_string(&numeric).unwrap();
+    assert!(
+        !s.contains("918273645"),
+        "numeric secret value leaked into validation error: {s}"
+    );
+
+    // (b) object password (a nested secret string must not surface either).
+    let object = execute_with(
+        &c,
+        op("sg_account_subusers_CreateSubuser"),
+        json!({ "body": {
+            "username": "sub1", "email": "sub1@example.com",
+            "password": { "leak": "SUPER-SECRET-OBJECT-VALUE" }, "ips": ["1.2.3.4"]
+        }}),
+        &NeverDispatcher,
+    )
+    .await;
+    assert_eq!(object.code.as_deref(), Some("E_VALIDATION"));
+    let s = serde_json::to_string(&object).unwrap();
+    assert!(
+        !s.contains("SUPER-SECRET-OBJECT-VALUE"),
+        "object secret value leaked into validation error: {s}"
     );
 }
 

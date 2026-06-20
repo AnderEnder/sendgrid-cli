@@ -215,12 +215,27 @@ pub struct OperationIr {
     /// True when the request body is a top-level JSON array (4 such ops exist).
     #[serde(default)]
     pub body_is_array: bool,
+    /// Key into the embedded schema map for the op's primary success (2xx)
+    /// **response** body, normalized to JSON Schema 2020-12 the same way request
+    /// bodies are. Retrieve the schema via [`crate::registry::Registry::response_schema`].
+    /// `None` when the success response carries no JSON schema (e.g. 204) or it
+    /// resolved to nothing usable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub response_schema_id: Option<String>,
 
     // --- Safety (from data/safety.toml + method default) ---
     pub side_effect: SideEffect,
     /// Response fields whose values are secrets to redact (e.g. `api_key`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_response_fields: Vec<String>,
+    /// Response fields that are an **intended output** and must be REVEALED — they
+    /// are exempted from the generic defense-in-depth SendGrid-key-pattern scrub so
+    /// a freshly-minted credential survives (e.g. `CreateApiKey`'s `api_key`). The
+    /// configured *auth* key is still removed verbatim everywhere; only the generic
+    /// `SG.<id>.<secret>` pattern scrub is skipped for these ops' responses. Curated
+    /// in `data/safety.toml` (`reveal_response_fields`). Empty for all but a tiny set.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub reveal_response_fields: Vec<String>,
     /// Request fields whose values are secrets to redact in previews (`password`, `*_secret`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_request_fields: Vec<String>,

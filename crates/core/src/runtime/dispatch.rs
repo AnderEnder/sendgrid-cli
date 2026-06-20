@@ -21,6 +21,17 @@ pub struct DispatchResponse {
     pub body: Value,
 }
 
+/// A raw (un-parsed) response: HTTP status + the verbatim response body bytes.
+///
+/// Used by out-of-band presigned-URL downloads ([`super::jobs::external_download`]),
+/// where the body may be gzipped/binary (a CSV export) and MUST round-trip
+/// byte-for-byte — the JSON-parsing [`DispatchResponse`] path would corrupt it.
+#[derive(Debug, Clone)]
+pub struct RawResponse {
+    pub status: http::StatusCode,
+    pub bytes: Vec<u8>,
+}
+
 impl DispatchResponse {
     /// `Retry-After` as a [`std::time::Duration`], if present (seconds form only;
     /// HTTP-date form is treated as absent and falls back to computed backoff).
@@ -62,6 +73,24 @@ impl DispatchError {
 #[allow(async_fn_in_trait)]
 pub trait OperationDispatcher {
     async fn dispatch(&self, req: reqwest::Request) -> Result<DispatchResponse, DispatchError>;
+
+    /// Send one request and return its status + **raw body bytes**, bypassing JSON
+    /// parsing so gzipped/binary payloads round-trip intact (presigned-URL
+    /// downloads). The default reconstructs bytes from [`dispatch`](Self::dispatch)'s
+    /// already-parsed body — fine for JSON/text mocks, but **lossy for true binary**;
+    /// [`ReqwestDispatcher`] overrides it to read the wire bytes directly.
+    async fn dispatch_bytes(&self, req: reqwest::Request) -> Result<RawResponse, DispatchError> {
+        let resp = self.dispatch(req).await?;
+        let bytes = match resp.body {
+            Value::Null => Vec::new(),
+            Value::String(s) => s.into_bytes(),
+            other => serde_json::to_vec(&other).unwrap_or_default(),
+        };
+        Ok(RawResponse {
+            status: resp.status,
+            bytes,
+        })
+    }
 }
 
 /// Backend D: a pooled-`reqwest::Client` dispatcher.
@@ -110,6 +139,15 @@ impl OperationDispatcher for ReqwestDispatcher {
             headers,
             body,
         })
+    }
+
+    /// Read the verbatim wire bytes (no JSON parse, no lossy UTF-8 conversion), so a
+    /// gzipped/binary export round-trips byte-for-byte.
+    async fn dispatch_bytes(&self, req: reqwest::Request) -> Result<RawResponse, DispatchError> {
+        let resp = self.client.execute(req).await.map_err(classify)?;
+        let status = resp.status();
+        let bytes = resp.bytes().await.map_err(classify)?.to_vec();
+        Ok(RawResponse { status, bytes })
     }
 }
 

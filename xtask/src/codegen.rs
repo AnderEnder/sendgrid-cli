@@ -95,6 +95,8 @@ pub fn run() -> Result<()> {
     let mut data_keys = 0usize;
     let mut with_constraints = 0usize;
     let mut with_search_keywords = 0usize;
+    let mut with_response_schema = 0usize;
+    let mut with_reveal_fields = 0usize;
     for op in &out.ops {
         *se.entry(match op.side_effect {
             SideEffect::Read => "read",
@@ -136,6 +138,12 @@ pub fn run() -> Result<()> {
         if !op.search_keywords.is_empty() {
             with_search_keywords += 1;
         }
+        if op.response_schema_id.is_some() {
+            with_response_schema += 1;
+        }
+        if !op.reveal_response_fields.is_empty() {
+            with_reveal_fields += 1;
+        }
     }
 
     println!(
@@ -152,6 +160,8 @@ pub fn run() -> Result<()> {
     println!("  pagination data_key: {data_keys}");
     println!("  ops with constraints: {with_constraints}");
     println!("  ops with search_keywords: {with_search_keywords}");
+    println!("  ops with response_schema_id: {with_response_schema}");
+    println!("  ops with reveal_response_fields: {with_reveal_fields}");
     println!(
         "  wrote ir.json: {wrote_ir}, schemas.json: {wrote_schemas} (false = already up to date)"
     );

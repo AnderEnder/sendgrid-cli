@@ -115,6 +115,16 @@ pub fn top_level_property_names(schema: &Value) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// True when a normalized schema carries no usable constraint — an empty object
+/// `{}` (an unresolved/cyclic `$ref` collapses to this) or a non-object. Used to
+/// avoid embedding a degenerate success-response schema (e.g. a `204`).
+pub fn is_empty_schema(schema: &Value) -> bool {
+    match schema {
+        Value::Object(m) => m.is_empty(),
+        _ => true,
+    }
+}
+
 /// True when the resolved schema's top-level type is `array` (handles both scalar
 /// `"array"` and a `["array", ...]` union).
 pub fn is_array_schema(schema: &Value) -> bool {

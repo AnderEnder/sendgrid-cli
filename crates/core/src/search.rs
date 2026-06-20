@@ -23,6 +23,20 @@
 //!     over `ListContactCount` for "create contact list" without letting a bare
 //!     verb match (e.g. `Create*` on "create a contact") flood the top (F3).
 //!
+//! Three further refinements relocate good *tool-selection* into this ranker (the
+//! meta-tool pattern now leans on it), fixing three verified mis-ranks (P6 item 8):
+//!   - **intent-synonym expansion** ([`synonyms`]): list↔collection,
+//!     verify→validate/authenticate, suppress→block/bounce — extra match
+//!     opportunities at [`SYN_DISCOUNT`] (no effect on corpus IDF);
+//!   - a **side-effect bias** ([`constructive_bias`]): on a constructive query
+//!     (create/add/send/…) Read (`Get*`/`List*`) and Destructive (`Delete*`) hits are
+//!     down-ranked so the op that performs the action wins;
+//!   - a small **curated intent→op alias table** ([`INTENT_ALIASES`], ~15 hottest
+//!     intents): when every trigger stem is present, the canonical op is pinned to
+//!     the top — surgically, without disturbing IDF. This is what makes "send a
+//!     transactional email"→`SendMail`, "create a contact list"→`CreateMarketingList`,
+//!     and "add contact to list"→`UpdateContact` resolve #1.
+//!
 //! IDF is computed **once over all 391 ops including hidden** (corpus statistics
 //! shouldn't shift with the `include_legacy` flag) over the **stemmed** tokens of
 //! `id/tags/summary/path` (keywords excluded — see [`W_KEYWORDS`]); the hidden
@@ -58,6 +72,97 @@ const SYN_DISCOUNT: f64 = 0.4;
 const VERB_BOOST: f64 = 2.0;
 /// Reward for covering more distinct query terms.
 const COVERAGE_BONUS: f64 = 0.15;
+/// Multiplicative down-rank for a **Read** hit (`Get*`/`List*`) when the query
+/// expresses a constructive intent (create/add/send/…): the caller wants to perform
+/// an action, so a read op shouldn't outrank the op that does it (P6 item 8b).
+const READ_BIAS: f64 = 0.7;
+/// Stronger down-rank for a **Destructive** hit on a constructive query — a
+/// create/send query almost never wants a `Delete*`.
+const DESTRUCTIVE_BIAS: f64 = 0.55;
+/// Additive pin for a curated intent→op alias match ([`INTENT_ALIASES`]). Large
+/// enough to float the curated op to the top of its (filtered) candidate set without
+/// touching corpus IDF, so the hottest agent intents resolve deterministically.
+const ALIAS_BOOST: f64 = 1000.0;
+
+/// A curated intent→op pin: when EVERY `triggers` stem is present in the query, the
+/// target `op_id` is boosted to the top. This is a deliberate override for the
+/// hottest agent intents (the surface that the meta-tool's tool-selection now relies
+/// on) — it surgically fixes the verified mis-ranks WITHOUT perturbing the IDF the
+/// general ranker depends on. Op ids are rot-guarded by a test.
+struct IntentAlias {
+    triggers: &'static [&'static str],
+    op_id: &'static str,
+}
+
+/// ~15 hottest intents. Triggers are matched against the **stemmed** query token set
+/// (all must be present). Kept dependency-light (a const table, no data file).
+const INTENT_ALIASES: &[IntentAlias] = &[
+    // "send a transactional email" → real SendMail, not the test/marketing send.
+    IntentAlias {
+        triggers: &["transactional"],
+        op_id: "sg_mail_send_SendMail",
+    },
+    // "create a contact list" → the modern Marketing List, not a Segment.
+    IntentAlias {
+        triggers: &["create", "contact", "list"],
+        op_id: "sg_marketing_lists_CreateMarketingList",
+    },
+    IntentAlias {
+        triggers: &["create", "list"],
+        op_id: "sg_marketing_lists_CreateMarketingList",
+    },
+    // "add contact to list" / "add a contact" → Add-or-Update a Contact.
+    IntentAlias {
+        triggers: &["add", "contact"],
+        op_id: "sg_marketing_contacts_UpdateContact",
+    },
+    IntentAlias {
+        triggers: &["new", "contact"],
+        op_id: "sg_marketing_contacts_UpdateContact",
+    },
+    IntentAlias {
+        triggers: &["search", "contact"],
+        op_id: "sg_marketing_contacts_SearchContact",
+    },
+    IntentAlias {
+        triggers: &["import", "contact"],
+        op_id: "sg_marketing_contacts_ImportContact",
+    },
+    IntentAlias {
+        triggers: &["export", "contact"],
+        op_id: "sg_marketing_contacts_ExportContact",
+    },
+    // "create an api key" → CreateApiKey.
+    IntentAlias {
+        triggers: &["create", "api", "key"],
+        op_id: "sg_security_api_keys_CreateApiKey",
+    },
+    // "verify my domain" → the domain-auth Validate op (SendGrid's "verify" button).
+    IntentAlias {
+        triggers: &["verify", "domain"],
+        op_id: "sg_branding_domain_ValidateAuthenticatedDomain",
+    },
+    // "validate an email address" → the email-validation op.
+    IntentAlias {
+        triggers: &["validate", "email"],
+        op_id: "sg_validation_email_ValidateEmail",
+    },
+    // "create a template" → CreateTemplate.
+    IntentAlias {
+        triggers: &["create", "template"],
+        op_id: "sg_templates_CreateTemplate",
+    },
+    // "create a single send / newsletter" → CreateSingleSend.
+    IntentAlias {
+        triggers: &["create", "single", "send"],
+        op_id: "sg_marketing_singlesends_CreateSingleSend",
+    },
+    // "create a subuser" → CreateSubuser.
+    IntentAlias {
+        triggers: &["create", "subuser"],
+        op_id: "sg_account_subusers_CreateSubuser",
+    },
+];
 
 /// Default result cap when a caller passes no explicit limit.
 pub const DEFAULT_LIMIT: usize = 20;
@@ -211,7 +316,8 @@ fn is_stopword(t: &str) -> bool {
 /// Extra doc tokens a query token should also match (at [`SYN_DISCOUNT`]).
 fn synonyms(t: &str) -> &'static [&'static str] {
     match t {
-        "list" => &["get", "retrieve"],
+        "list" => &["get", "retrieve", "collection"],
+        "collection" => &["list"],
         "get" => &["list", "retrieve"],
         "retrieve" => &["list", "get"],
         "create" => &["add", "new"],
@@ -220,10 +326,13 @@ fn synonyms(t: &str) -> &'static [&'static str] {
         "remove" => &["delete", "erase"],
         "update" => &["edit", "patch"],
         "send" => &["dispatch"],
-        // SendGrid's UI "verify a domain" button maps to the Validate* domain-auth
-        // op; bridge the agent's natural verb to the spec's `validate`.
-        "verify" => &["validate"],
-        "validate" => &["verify"],
+        // SendGrid's UI "verify a domain" button maps to the Validate*/Authenticate*
+        // domain-auth ops; bridge the agent's natural verb to the spec's vocabulary.
+        "verify" => &["validate", "authenticate"],
+        "validate" => &["verify", "authenticate"],
+        // "suppress" already reaches "suppression" via stemming; bridge the related
+        // concrete suppression kinds an agent might name instead.
+        "suppress" => &["block", "bounce"],
         _ => &[],
     }
 }
@@ -412,6 +521,34 @@ fn score_op(idx: &Index, ot: &OpTokens, terms: &[String]) -> f64 {
     total * (1.0 + COVERAGE_BONUS * covered as f64)
 }
 
+/// Whether a raw query token expresses a CONSTRUCTIVE intent (create/send/…). When
+/// the query carries one, Read/Destructive hits are down-ranked (item 8b).
+fn query_is_constructive(terms: &[String]) -> bool {
+    terms.iter().any(|t| {
+        matches!(
+            t.as_str(),
+            "create" | "add" | "new" | "send" | "schedule" | "update" | "import" | "set" | "setup"
+        )
+    })
+}
+
+/// The constructive-intent multiplier for an op's side-effect class.
+fn constructive_bias(se: SideEffect) -> f64 {
+    match se {
+        SideEffect::Read => READ_BIAS,
+        SideEffect::Destructive => DESTRUCTIVE_BIAS,
+        SideEffect::Write | SideEffect::Send => 1.0,
+    }
+}
+
+/// Whether a curated intent alias pins `op_id` for this (stemmed) query: some alias
+/// targets this op AND every one of its trigger stems is present in the query.
+fn alias_fires(op_id: &str, query_stems: &HashSet<String>) -> bool {
+    INTENT_ALIASES
+        .iter()
+        .any(|a| a.op_id == op_id && a.triggers.iter().all(|t| query_stems.contains(&stem(t))))
+}
+
 /// The canonical lowercase name of a side-effect class (matches the IR's
 /// `serde(rename_all = "lowercase")`), used for the `side_effect` filter without
 /// pulling serde into the hot path.
@@ -465,6 +602,10 @@ pub fn search<'a>(reg: &'a Registry, query: &str, filters: &SearchFilters) -> Ve
         .into_iter()
         .filter(|t| !is_stopword(t))
         .collect();
+    // Stemmed query-term set (for curated alias matching) + constructive-intent flag
+    // (for the side-effect bias). Both are query-global, computed once.
+    let query_stems: HashSet<String> = terms.iter().map(|t| stem(t)).collect();
+    let constructive = query_is_constructive(&terms);
 
     let ops = reg.operations();
     let mut hits: Vec<(f64, usize)> = Vec::new();
@@ -475,12 +616,22 @@ pub fn search<'a>(reg: &'a Registry, query: &str, filters: &SearchFilters) -> Ve
         if !passes_filters(op, filters) {
             continue;
         }
-        let score = if terms.is_empty() {
+        let mut score = if terms.is_empty() {
             // No query: behave as a pure filter/browse listing.
             1.0
         } else {
             score_op(idx, &idx.ops[i], &terms)
         };
+        // Side-effect bias (b): on a constructive query, down-rank read/destructive
+        // hits so an action op isn't buried under Get*/List*/Delete*.
+        if score > 0.0 && constructive {
+            score *= constructive_bias(op.side_effect);
+        }
+        // Curated intent pin (c): float the canonical op for a hot intent to the top
+        // (applied after filters, so a filtered-out op is never resurrected).
+        if !terms.is_empty() && alias_fires(&op.id, &query_stems) {
+            score += ALIAS_BOOST;
+        }
         if score > 0.0 {
             hits.push((score, i));
         }
@@ -722,6 +873,70 @@ mod tests {
             single < sendmail,
             "a Single Sends op ({single}) must outrank transactional SendMail ({sendmail})"
         );
+    }
+
+    // --- P6 item 8: the three verified mis-ranks now resolve correctly (default
+    // view, as an agent uses it). Each asserts the right op is #1 / top-2. --------
+
+    #[test]
+    fn miss_send_transactional_email_ranks_sendmail_first() {
+        // Was: SendTestMarketingEmail #0, SendMail #1. The `transactional` intent
+        // alias pins the real transactional SendMail to the top.
+        let ids = ranked_ids("send a transactional email", false);
+        let sendmail = pos(&ids, "sg_mail_send_SendMail");
+        let test = pos(&ids, "sg_mail_test_SendTestMarketingEmail");
+        assert!(sendmail < 2, "SendMail should be top-2, was at {sendmail}");
+        assert!(
+            sendmail < test,
+            "SendMail ({sendmail}) must outrank SendTestMarketingEmail ({test})"
+        );
+    }
+
+    #[test]
+    fn miss_create_contact_list_ranks_marketing_list_first() {
+        // Was: CreateSegment #0, CreateMarketingList #1. The `create contact list`
+        // intent alias pins the modern Marketing List above Segment.
+        let ids = ranked_ids("create a contact list", false);
+        let list = pos(&ids, "sg_marketing_lists_CreateMarketingList");
+        let segment = pos(&ids, "sg_marketing_segments_CreateSegment");
+        assert!(
+            list < 2,
+            "CreateMarketingList should be top-2, was at {list}"
+        );
+        assert!(
+            list < segment,
+            "CreateMarketingList ({list}) must outrank CreateSegment ({segment})"
+        );
+    }
+
+    #[test]
+    fn miss_add_contact_to_list_surfaces_update_contact() {
+        // Was: UpdateContact buried (#7+) under Get*/List*/AddIp noise. The
+        // add-contact alias + side-effect bias surface it at the top.
+        let ids = ranked_ids("add contact to list", false);
+        let contact = pos(&ids, "sg_marketing_contacts_UpdateContact");
+        assert!(
+            contact < 2,
+            "UpdateContact should be top-2 for 'add contact to list', was at {contact}"
+        );
+    }
+
+    #[test]
+    fn intent_aliases_reference_real_ops() {
+        // Rot-guard: every curated alias must point at an op that exists.
+        let reg = Registry::global();
+        for a in INTENT_ALIASES {
+            assert!(
+                reg.by_id(a.op_id).is_some(),
+                "INTENT_ALIASES references unknown op id {:?}",
+                a.op_id
+            );
+            assert!(
+                !a.triggers.is_empty(),
+                "alias {:?} has no triggers",
+                a.op_id
+            );
+        }
     }
 
     #[test]

@@ -401,7 +401,9 @@ pub async fn run_download(op: &OperationIr, args: Value, globals: &GlobalOpts, d
                 } else {
                     dest_path.to_path_buf()
                 };
-                let payload = body_bytes(&resp.body);
+                // RawResponse carries the true wire bytes, so gzipped/binary
+                // exports round-trip faithfully (no lossy JSON re-encode).
+                let payload = resp.bytes;
                 match std::fs::write(&out, &payload) {
                     Ok(()) => files.push(json!({
                         "index": i, "status": code, "ok": true,
@@ -448,14 +450,6 @@ fn filename_from_url(url: &str) -> Option<String> {
     let no_query = url.split(['?', '#']).next().unwrap_or(url);
     let seg = no_query.rsplit('/').next().unwrap_or("");
     (!seg.is_empty()).then(|| seg.to_string())
-}
-
-fn body_bytes(body: &Value) -> Vec<u8> {
-    match body {
-        Value::String(s) => s.clone().into_bytes(),
-        Value::Null => Vec::new(),
-        other => serde_json::to_vec_pretty(other).unwrap_or_default(),
-    }
 }
 
 #[cfg(test)]

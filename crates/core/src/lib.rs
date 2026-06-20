@@ -17,6 +17,6 @@ pub use search::{SearchFilters, SearchHit};
 // root for ergonomic consumption by the CLI/MCP crates.
 pub use runtime::{
     ApiKey, AuthError, DispatchError, DispatchResponse, ExecuteResult, JobError,
-    OperationDispatcher, Payload, Policy, PollConfig, Region, ReqwestDispatcher, RuntimeConfig,
-    await_job, execute, execute_with, external_download, external_upload,
+    OperationDispatcher, Payload, Policy, PollConfig, RawResponse, Region, ReqwestDispatcher,
+    RuntimeConfig, await_job, execute, execute_with, external_download, external_upload,
 };

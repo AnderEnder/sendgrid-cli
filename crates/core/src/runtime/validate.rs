@@ -85,6 +85,16 @@ pub fn validate(registry: &Registry, op: &OperationIr, args: &Value) -> Validati
             .get("body")
             .cloned()
             .unwrap_or(Value::Object(Map::new()));
+        // SECURITY (P6 item 1): jsonschema embeds the offending INSTANCE VALUE
+        // verbatim in its error string, so a wrong-typed secret (e.g. a numeric or
+        // object `password`) would leak into the `E_VALIDATION` envelope. Two guards:
+        //   1. an error whose instance path passes through a secret field gets a
+        //      generic message (no value at all);
+        //   2. as defense-in-depth, any secret value present in the body is scrubbed
+        //      out of every other message.
+        // The body itself is NOT pre-redacted (that would pass `type:string` and lose
+        // the validation), so this is the sole guard for this leak.
+        let secret_values = collect_secret_request_values(&body, &op.secret_request_fields);
         match compile(schema) {
             Ok(compiled) => {
                 if let Err(errors) = compiled.validate(&body) {
@@ -95,10 +105,22 @@ pub fn validate(registry: &Registry, op: &OperationIr, args: &Value) -> Validati
                         } else {
                             format!("body{ptr}")
                         };
-                        report.issues.push(ValidationIssue {
-                            pointer,
-                            message: e.to_string(),
+                        let in_secret_subtree = ptr.split('/').any(|seg| {
+                            !seg.is_empty()
+                                && op
+                                    .secret_request_fields
+                                    .iter()
+                                    .any(|f| f.eq_ignore_ascii_case(seg))
                         });
+                        let message = if in_secret_subtree {
+                            format!(
+                                "value at `{pointer}` failed body-schema validation \
+                                 (value omitted: secret field)"
+                            )
+                        } else {
+                            scrub_secret_values(&e.to_string(), &secret_values)
+                        };
+                        report.issues.push(ValidationIssue { pointer, message });
                     }
                 }
             }
@@ -123,6 +145,57 @@ pub fn validate(registry: &Registry, op: &OperationIr, args: &Value) -> Validati
     }
 
     report
+}
+
+/// Collect the (serialized) values of every body field whose name is in
+/// `secret_fields` (case-insensitive, deep). Both the compact-JSON form (what
+/// jsonschema embeds for a non-string instance, e.g. `12345` or `{"a":"b"}`) and,
+/// for string values, the unquoted inner form are returned, so either can be scrubbed
+/// from an error message.
+fn collect_secret_request_values(body: &Value, secret_fields: &[String]) -> Vec<String> {
+    if secret_fields.is_empty() {
+        return Vec::new();
+    }
+    let lower: Vec<String> = secret_fields
+        .iter()
+        .map(|f| f.to_ascii_lowercase())
+        .collect();
+    let mut out = Vec::new();
+    collect_walk(body, &lower, &mut out);
+    out
+}
+
+fn collect_walk(v: &Value, fields: &[String], out: &mut Vec<String>) {
+    match v {
+        Value::Object(map) => {
+            for (k, val) in map {
+                if fields.contains(&k.to_ascii_lowercase()) && !val.is_null() {
+                    out.push(val.to_string());
+                    if let Value::String(s) = val {
+                        out.push(s.clone());
+                    }
+                }
+                collect_walk(val, fields, out);
+            }
+        }
+        Value::Array(arr) => {
+            for val in arr {
+                collect_walk(val, fields, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Replace any occurrence of a known secret value in `message` with `[REDACTED]`.
+fn scrub_secret_values(message: &str, secret_values: &[String]) -> String {
+    let mut msg = message.to_string();
+    for v in secret_values {
+        if !v.is_empty() && msg.contains(v.as_str()) {
+            msg = msg.replace(v.as_str(), "[REDACTED]");
+        }
+    }
+    msg
 }
 
 /// A body field counts as **present** only when it is a non-`null`, non-empty value
@@ -357,6 +430,37 @@ mod tests {
             "expected body/subject issue, got {:?}",
             report.issues
         );
+    }
+
+    #[test]
+    fn wrong_typed_secret_value_is_not_in_the_issue_message() {
+        // P6 item 1: jsonschema embeds the offending instance value verbatim; a
+        // numeric/object `password` must NOT leak its value into the issue message.
+        let r = Registry::global();
+        let op = r
+            .by_id("sg_account_subusers_CreateSubuser")
+            .expect("CreateSubuser");
+        for (secret, marker) in [
+            (json!(918273645), "918273645"),
+            (json!({ "leak": "SUPER-SECRET" }), "SUPER-SECRET"),
+        ] {
+            let args = json!({ "body": {
+                "username": "sub1", "email": "sub1@example.com",
+                "password": secret, "ips": ["1.2.3.4"]
+            }});
+            let report = validate(r, op, &args);
+            assert!(!report.is_ok(), "expected a type rejection for {marker}");
+            let serialized = serde_json::to_string(&report.issues).unwrap();
+            assert!(
+                !serialized.contains(marker),
+                "secret value `{marker}` leaked into the issue(s): {serialized}"
+            );
+            assert!(
+                report.issues.iter().any(|i| i.pointer == "body/password"),
+                "expected a body/password issue, got {:?}",
+                report.issues
+            );
+        }
     }
 
     #[test]

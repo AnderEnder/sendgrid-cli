@@ -48,14 +48,17 @@ jobs:
 
       - name: Clone upstream at HEAD
         id: upstream
+        env:
+          SOURCE: ${{ steps.pin.outputs.source }}
+          PINNED: ${{ steps.pin.outputs.rev }}
         run: |
           set -euo pipefail
           dir="$RUNNER_TEMP/upstream"
-          git clone --depth 1 "${{ steps.pin.outputs.source }}" "$dir"
+          git clone --depth 1 "$SOURCE" "$dir"
           head=$(git -C "$dir" rev-parse HEAD)
           echo "dir=$dir"   >> "$GITHUB_OUTPUT"
           echo "head=$head" >> "$GITHUB_OUTPUT"
-          echo "upstream HEAD: $head   (pinned rev: ${{ steps.pin.outputs.rev }})"
+          echo "upstream HEAD: $head   (pinned rev: $PINNED)"
 
       # `drift` exit codes: 0 = no drift, 1 = drift, 2+ = tool error. We must NOT
       # let drift (1) kill the job before we can file the issue, but a tool error
@@ -94,6 +97,7 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           PINNED: ${{ steps.pin.outputs.rev }}
           HEAD_SHA: ${{ steps.upstream.outputs.head }}
+          SPEC_PATH: ${{ steps.pin.outputs.path }}
         run: |
           set -euo pipefail
           label="spec-drift"
@@ -121,7 +125,7 @@ jobs:
             echo "4. Review the \`crates/core/generated/\` diff (this is the human review of the surface change),"
             echo "   run \`cargo test --workspace\`, then open a PR with specs/ + specs.lock + generated/."
             echo
-            echo "_Re-run locally: \`cargo xtask drift --upstream <clone>/${{ steps.pin.outputs.path }}\`._"
+            echo "_Re-run locally: \`cargo xtask drift --upstream <clone>/$SPEC_PATH\`._"
           } > drift-body.md
 
           # De-dup: one open issue at a time. Comment on the existing one instead of

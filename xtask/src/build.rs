@@ -82,6 +82,16 @@ fn split_op_id(op_id: &str) -> Vec<String> {
     tokens
 }
 
+/// The `#/components/schemas/X` component name a raw response node points at (when
+/// it is a direct `$ref`), used to dedup response schemas into the shared schema map
+/// (a request + response that reference the same component collapse to one entry).
+fn response_ref_name(node: &Value) -> Option<String> {
+    node.get("$ref")
+        .and_then(Value::as_str)
+        .filter(|r| r.contains("/components/schemas/"))
+        .map(|r| r.rsplit('/').next().unwrap_or(r).to_string())
+}
+
 /// `sg_<domain>[_<subgroup>]_<operationId>` with the collapse rule.
 fn build_id(domain_slug: &str, subgroup_slug: &str, collapse: bool, op_id: &str) -> String {
     if collapse {
@@ -361,6 +371,36 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 }
             };
 
+            // --- primary success-response schema: resolve + normalize + embed (P6
+            //     item 7). Reuses the request-style resolver/normalizer and the same
+            //     schema map, so a request + response sharing a component collapse to
+            //     one entry. A degenerate result (204, or a cycle/unresolved that
+            //     collapsed to `{}`) is not embedded. ---
+            let response_schema_id = match &raw.response_2xx {
+                None => None,
+                Some(node) => {
+                    let normalized = schema::resolve_and_normalize(&spec.root, node, &mut stats);
+                    if schema::is_empty_schema(&normalized) {
+                        None
+                    } else {
+                        let key = match response_ref_name(node) {
+                            Some(name) => format!("{ns}.{name}"),
+                            None => format!("{ns}.{}.response", raw.operation_id),
+                        };
+                        match schemas.get(&key) {
+                            Some(existing) if existing != &normalized => {
+                                bail!("response schema {key:?} maps to two different schemas");
+                            }
+                            Some(_) => {}
+                            None => {
+                                schemas.insert(key.clone(), normalized);
+                            }
+                        }
+                        Some(key)
+                    }
+                }
+            };
+
             // --- taxonomy: id, id_alias, cli_path ---
             let id = build_id(&domain_slug, &subgroup_slug, collapse, &raw.operation_id);
             let id_alias = tables.alias_by_op.get(&op_key).map(|alias_op| {
@@ -403,6 +443,11 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
             // --- safety: secret fields ---
             let secret_response_fields = tables
                 .secret_response_by_op
+                .get(&op_key)
+                .cloned()
+                .unwrap_or_default();
+            let reveal_response_fields = tables
+                .reveal_response_by_op
                 .get(&op_key)
                 .cloned()
                 .unwrap_or_default();
@@ -533,8 +578,10 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 body_schema_id,
                 has_body,
                 body_is_array,
+                response_schema_id,
                 side_effect,
                 secret_response_fields,
+                reveal_response_fields,
                 secret_request_fields,
                 bulk_triggers,
                 pagination,
@@ -609,6 +656,11 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     for s in &tables.safety.secret_response_fields {
         if !op_keys.contains(&s.op) {
             bail!("secret_response_fields targets unknown op {:?}", s.op);
+        }
+    }
+    for s in &tables.safety.reveal_response_fields {
+        if !op_keys.contains(&s.op) {
+            bail!("reveal_response_fields targets unknown op {:?}", s.op);
         }
     }
     for k in tables.destructive_set.iter().chain(tables.send_set.iter()) {
