@@ -11,7 +11,7 @@ use crate::tables::{ConstraintEntry, Tables};
 use anyhow::{Result, bail};
 use sendgrid_core::ir::{
     AsyncJob, BulkLocation, BulkTrigger, Constraint, Location, OperationIr, Pagination,
-    PaginationKind, ParamIr, SideEffect,
+    PaginationKind, ParamDefault, ParamIr, SideEffect,
 };
 use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
@@ -285,6 +285,7 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     let mut applied_alias: BTreeSet<String> = BTreeSet::new();
     let mut applied_constraints: BTreeSet<String> = BTreeSet::new();
     let mut applied_async: BTreeSet<String> = BTreeSet::new();
+    let mut applied_defaults: BTreeSet<String> = BTreeSet::new();
     // (op_key, computed companion status-op id) — verified to exist post-loop.
     let mut async_status_targets: Vec<(String, String)> = Vec::new();
 
@@ -513,6 +514,37 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 applied_constraints.insert(op_key.clone());
             }
 
+            // --- curated client-side param defaults (data/defaults.toml) ---
+            let mut param_defaults: Vec<ParamDefault> = Vec::new();
+            if let Some(entries) = tables.defaults_by_op.get(&op_key) {
+                for e in entries {
+                    let location = match e.location.as_str() {
+                        "query" => Location::Query,
+                        "header" => Location::Header,
+                        other => bail!(
+                            "defaults {op_key}: unsupported location {other:?} (only query/header)"
+                        ),
+                    };
+                    // Rot-guard: the op must actually declare this param.
+                    if !params
+                        .iter()
+                        .any(|p| p.location == location && p.name == e.name)
+                    {
+                        bail!(
+                            "defaults {op_key}: op has no {} param {:?}",
+                            e.location,
+                            e.name
+                        );
+                    }
+                    param_defaults.push(ParamDefault {
+                        location,
+                        name: e.name.clone(),
+                        value: e.value.clone(),
+                    });
+                    applied_defaults.insert(format!("{op_key}.{}.{}", e.location, e.name));
+                }
+            }
+
             // --- async job classification (data/async_jobs.toml) ---
             let response_props = raw
                 .response_2xx
@@ -590,6 +622,7 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 async_uri_field,
                 search_keywords,
                 constraints,
+                param_defaults,
                 region_global_only,
                 retry_safe_5xx,
                 retry_safe_429: true,
@@ -635,6 +668,16 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     let missing_async: Vec<_> = want_async.difference(&applied_async).cloned().collect();
     if !missing_async.is_empty() {
         bail!("async_jobs entries never applied (op not found?): {missing_async:?}");
+    }
+    let want_defaults: BTreeSet<String> = tables
+        .defaults
+        .default
+        .iter()
+        .map(|d| format!("{}.{}.{}", d.op, d.location, d.name))
+        .collect();
+    let missing_defaults: Vec<_> = want_defaults.difference(&applied_defaults).cloned().collect();
+    if !missing_defaults.is_empty() {
+        bail!("defaults never applied (op/param not found?): {missing_defaults:?}");
     }
     // Every curated search_keywords namespace must be a real namespace.
     for ns in tables.taxonomy.search_keywords.keys() {

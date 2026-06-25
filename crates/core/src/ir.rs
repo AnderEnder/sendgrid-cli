@@ -269,6 +269,14 @@ pub struct OperationIr {
     /// exposed to the MCP example synthesizer.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub constraints: Vec<Constraint>,
+    /// Curated client-side query/header param defaults (`data/defaults.toml`),
+    /// injected when the caller omits the param so omitted-value behavior matches
+    /// the modern API result set instead of SendGrid's legacy server default
+    /// (e.g. `generations=legacy,dynamic` on `ListTemplate`). An explicit caller
+    /// value always wins. Applied at the shared `execute()` chokepoint, so the CLI
+    /// and MCP behave identically.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub param_defaults: Vec<ParamDefault>,
     /// True when the spec declares no EU server for this op (14 global-only specs).
     #[serde(default)]
     pub region_global_only: bool,
@@ -282,6 +290,20 @@ pub struct OperationIr {
 
 fn default_true() -> bool {
     true
+}
+
+/// A curated default value injected for an omitted query/header param. The
+/// `value` is carried as a string (like every CLI-supplied param) and flows
+/// through coercion + validation exactly as a caller-typed value would.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ParamDefault {
+    /// Where the param lives. Only `query`/`header` are meaningful (path params
+    /// are required, so a default never applies); codegen rejects `path`.
+    pub location: Location,
+    /// The exact spec param name (envelope key).
+    pub name: String,
+    /// The default value to inject when the param is absent.
+    pub value: String,
 }
 
 /// A condition that promotes an operation to the `bulk` class.

@@ -3,8 +3,9 @@
 //! data-driven dispatcher (**Backend D**) that performs the HTTP I/O.
 //!
 //! Pipeline (brief item 12):
-//! `coerce → sanitize-headers → govern-OBO → validate → policy → bulk → region →
-//!  build → [dry-run preview] → send(retry) → [paginate if --all] → envelope`,
+//! `apply-defaults → coerce → sanitize-headers → govern-OBO → validate → policy →
+//!  bulk → region → build → [dry-run preview] → send(retry) → [paginate if --all]
+//!  → envelope`,
 //! with always-on secret redaction (field-level + a final belt-and-suspenders
 //! scrub) layered over the result.
 //!
@@ -15,6 +16,7 @@
 //! - [`auth::ApiKey`], [`region::Region`], [`safety::Policy`],
 //!   [`dispatch::OperationDispatcher`] / [`dispatch::ReqwestDispatcher`].
 
+pub mod apply_defaults;
 pub mod auth;
 pub mod build;
 pub mod coerce;
@@ -144,6 +146,12 @@ async fn run<D: OperationDispatcher>(
             );
         }
     };
+
+    // 0. Inject curated client-side defaults for omitted query/header params
+    //    (data/defaults.toml), so omitted-value behavior matches the modern API
+    //    result set instead of SendGrid's legacy server default. Runs before
+    //    coercion so an injected value is coerced/validated like a caller's.
+    apply_defaults::apply_defaults(op, &mut args);
 
     // 1. Coerce string args → declared types (path/query/header).
     coerce::coerce_args(op, &mut args);

@@ -155,6 +155,23 @@ pub struct AsyncJobEntry {
     pub uri_field: Option<String>,
 }
 
+// --- defaults.toml ---
+
+#[derive(Debug, Deserialize, Default)]
+pub struct Defaults {
+    #[serde(default)]
+    pub default: Vec<DefaultEntry>,
+}
+
+#[derive(Debug, Deserialize, Clone)]
+pub struct DefaultEntry {
+    pub op: String,
+    /// "query" | "header" (path params are required, so a default never applies).
+    pub location: String,
+    pub name: String,
+    pub value: String,
+}
+
 /// All curated tables, loaded once with derived fast-lookup indexes.
 pub struct Tables {
     pub taxonomy: Taxonomy,
@@ -163,6 +180,7 @@ pub struct Tables {
     pub pagination: Pagination,
     pub constraints: Constraints,
     pub async_jobs: AsyncJobs,
+    pub defaults: Defaults,
 
     // Derived indexes (built in `load`).
     pub send_set: BTreeSet<String>,
@@ -177,6 +195,7 @@ pub struct Tables {
     pub alias_by_op: HashMap<String, String>,
     pub constraints_by_op: HashMap<String, Vec<ConstraintEntry>>,
     pub async_job_by_op: HashMap<String, AsyncJobEntry>,
+    pub defaults_by_op: HashMap<String, Vec<DefaultEntry>>,
 }
 
 fn load_toml<T: for<'de> Deserialize<'de>>(path: &Path) -> Result<T> {
@@ -192,6 +211,7 @@ impl Tables {
         let pagination: Pagination = load_toml(&data_dir.join("pagination.toml"))?;
         let constraints: Constraints = load_toml(&data_dir.join("constraints.toml"))?;
         let async_jobs: AsyncJobs = load_toml(&data_dir.join("async_jobs.toml"))?;
+        let defaults: Defaults = load_toml(&data_dir.join("defaults.toml"))?;
 
         let send_set = safety.send_list.iter().cloned().collect();
         let destructive_set = safety.destructive_overrides.iter().cloned().collect();
@@ -267,6 +287,14 @@ impl Tables {
             .map(|j| (j.op.clone(), j.clone()))
             .collect();
 
+        let mut defaults_by_op: HashMap<String, Vec<DefaultEntry>> = HashMap::new();
+        for d in &defaults.default {
+            defaults_by_op
+                .entry(d.op.clone())
+                .or_default()
+                .push(d.clone());
+        }
+
         Ok(Tables {
             taxonomy,
             safety,
@@ -274,6 +302,7 @@ impl Tables {
             pagination,
             constraints,
             async_jobs,
+            defaults,
             send_set,
             destructive_set,
             global_only_set,
@@ -286,6 +315,7 @@ impl Tables {
             alias_by_op,
             constraints_by_op,
             async_job_by_op,
+            defaults_by_op,
         })
     }
 }

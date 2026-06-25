@@ -265,6 +265,16 @@ fn params_json(op: &OperationIr) -> Vec<Value> {
             if let Some(f) = &p.format {
                 m.insert("format".into(), json!(f));
             }
+            // Surface any curated client-side default so the MCP contract stays
+            // self-consistent: omitting this param injects `default` (an explicit
+            // value still wins), rather than inheriting SendGrid's server default.
+            if let Some(def) = op
+                .param_defaults
+                .iter()
+                .find(|d| d.location == p.location && d.name == p.name)
+            {
+                m.insert("default".into(), json!(def.value));
+            }
             if let Some(d) = &p.description {
                 m.insert("description".into(), json!(truncate(d, DESC_TRUNCATE)));
             }
@@ -695,6 +705,21 @@ mod tests {
         // Field menu shows non-required fields too (subject, content).
         assert!(body["fields"]["subject"].is_string());
         assert!(body["fields"]["content"].is_string());
+    }
+
+    #[test]
+    fn describe_surfaces_curated_param_default() {
+        // Self-consistent MCP contract: a curated client-side default is shown on
+        // the param, so an agent knows omitting `generations` yields legacy,dynamic
+        // (not SendGrid's legacy-only server default) and can override it.
+        let out = describe("sg_templates_ListTemplate", "minimal").unwrap();
+        let generations = out["params"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|p| p["name"] == "generations")
+            .expect("generations param present");
+        assert_eq!(generations["default"], json!("legacy,dynamic"));
     }
 
     #[test]

@@ -1,0 +1,21 @@
+# Curated client-side parameter defaults.
+#
+# Some SendGrid endpoints apply a *server-side* default that silently narrows
+# results to legacy behavior when a query param is omitted. The canonical case:
+# `GET /v3/templates` defaults `generations=legacy`, so a caller who omits it
+# sees none of their modern (dynamic) templates and reads `count: 0` as "broken".
+#
+# Each entry below is injected into the args envelope ONLY when the caller omits
+# the param (an explicitly-provided value — including via `--generations` on the
+# CLI — always wins). This makes the CLI and MCP "just work" by defaulting to the
+# full, modern result set instead of inheriting the legacy-only server default.
+#
+# Codegen bakes these into the IR (`param_defaults`) and drift-guards every entry:
+# the op must exist and must actually declare the named query/header param.
+# Keep `value` within the param's spec-declared enum where one exists.
+
+[[default]]
+op = "templates.ListTemplate"
+location = "query"
+name = "generations"
+value = "legacy,dynamic"

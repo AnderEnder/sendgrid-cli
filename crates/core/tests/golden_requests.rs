@@ -238,6 +238,43 @@ async fn golden_number_param_renders_as_integer() {
     }
 }
 
+/// **Curated client-side default injection** — `GET /v3/templates` defaults
+/// `generations=legacy` server-side, hiding modern (dynamic) templates. The
+/// curated `data/defaults.toml` entry injects `generations=legacy,dynamic` when
+/// the caller omits it, so the CLI/MCP "just work" and return every template. An
+/// explicit value must still win. Verified through the real `execute()` pipeline.
+#[tokio::test]
+async fn golden_curated_default_injected_when_omitted() {
+    // Omitted → injected (comma percent-encoded as %2C by reqwest).
+    let url = url_of(
+        "sg_templates_ListTemplate",
+        json!({ "query": { "page_size": "10" } }),
+    )
+    .await;
+    assert!(
+        url.contains("generations=legacy%2Cdynamic"),
+        "omitted generations must default to legacy,dynamic; url={url}"
+    );
+
+    // Explicit value wins — no injection, no duplication. (`page_size` is a
+    // required query param, so it's supplied here too.)
+    let explicit = url_of(
+        "sg_templates_ListTemplate",
+        json!({ "query": { "page_size": "10", "generations": "legacy" } }),
+    )
+    .await;
+    assert!(explicit.contains("generations=legacy"), "url={explicit}");
+    assert!(
+        !explicit.contains("legacy%2Cdynamic"),
+        "explicit value must not be overridden; url={explicit}"
+    );
+    assert_eq!(
+        explicit.matches("generations=").count(),
+        1,
+        "exactly one generations param; url={explicit}"
+    );
+}
+
 /// **CLI-style coercion (comma → array)** — `"x,y,z"` for an array param coerces to
 /// `["x","y","z"]`, then encodes per the param's `explode=false` (comma-joined).
 /// Also coerces a sibling boolean.

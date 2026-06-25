@@ -17902,6 +17902,13 @@
       "inject_param": "page_token",
       "kind": "page_token"
     },
+    "param_defaults": [
+      {
+        "location": "query",
+        "name": "generations",
+        "value": "legacy,dynamic"
+      }
+    ],
     "params": [
       {
         "description": "Comma-delimited list specifying which generations of templates to return. Options are `legacy`, `dynamic` or `legacy,dynamic`.",
