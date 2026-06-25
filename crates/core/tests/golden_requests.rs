@@ -217,6 +217,27 @@ async fn golden_cli_coercion_integer_and_boolean() {
     assert!(url.contains("is_enabled=true"), "url={url}");
 }
 
+/// **`number`-typed param renders as an integer** — SendGrid declares `page_size`
+/// (and `limit`, `lastSeenID`) as `type: number`, but its API rejects a fractional
+/// rendering with `"must be an integer"`. Whether the value arrives as a CLI string
+/// (`"10"`), a CLI decimal string (`"10.0"`), or a typed JSON float (`10.0`), the
+/// built URL must read `page_size=10` — never `page_size=10.0`. Regression for the
+/// `templates list-template --page_size 10` bug.
+#[tokio::test]
+async fn golden_number_param_renders_as_integer() {
+    for q in [
+        json!({ "query": { "page_size": "10" } }),   // CLI string
+        json!({ "query": { "page_size": "10.0" } }), // CLI decimal string
+        json!({ "query": { "page_size": 10.0 } }),   // typed JSON float (MCP)
+    ] {
+        let url = url_of("sg_templates_ListTemplate", q.clone()).await;
+        assert!(
+            url.contains("page_size=10") && !url.contains("page_size=10.0"),
+            "input {q} must render page_size=10, got url={url}"
+        );
+    }
+}
+
 /// **CLI-style coercion (comma → array)** — `"x,y,z"` for an array param coerces to
 /// `["x","y","z"]`, then encodes per the param's `explode=false` (comma-joined).
 /// Also coerces a sibling boolean.

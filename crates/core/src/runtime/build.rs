@@ -195,10 +195,29 @@ fn scalar_to_string(v: &Value) -> String {
     match v {
         Value::String(s) => s.clone(),
         Value::Bool(b) => b.to_string(),
-        Value::Number(n) => n.to_string(),
+        Value::Number(n) => number_to_string(n),
         Value::Null => String::new(),
         other => other.to_string(),
     }
+}
+
+/// Render a JSON number for the wire. Integral floats (e.g. `10.0`) are emitted
+/// without the trailing `.0` so that params SendGrid's OpenAPI declares as
+/// `type: number` but actually validates as integers (`page_size`, `limit`,
+/// `lastSeenID`) aren't rejected with `"must be an integer"`. A query/path/header
+/// value of `10` is accepted everywhere `10.0` is (it's all text on the wire), so
+/// this is strictly safer. The cast is range-guarded: `as i64` *saturates*, so a
+/// huge float would otherwise silently become `i64::MAX`.
+fn number_to_string(n: &serde_json::Number) -> String {
+    if n.is_f64()
+        && let Some(f) = n.as_f64()
+        && f.is_finite()
+        && f.fract() == 0.0
+        && (i64::MIN as f64..=i64::MAX as f64).contains(&f)
+    {
+        return (f as i64).to_string();
+    }
+    n.to_string()
 }
 
 /// Minimal percent-encoding for a path-segment value (RFC 3986 unreserved kept).
@@ -267,6 +286,20 @@ mod tests {
         let pairs = build_query_pairs(&params, &q);
         assert_eq!(pairs.len(), 2);
         assert!(pairs.iter().all(|(k, _)| k == "ids"));
+    }
+
+    #[test]
+    fn number_to_string_normalizes_integral_floats() {
+        // Integral floats lose the trailing `.0` (the page_size bug).
+        assert_eq!(scalar_to_string(&serde_json::json!(10.0)), "10");
+        assert_eq!(scalar_to_string(&serde_json::json!(200.0)), "200");
+        // Genuine integers and fractionals are untouched.
+        assert_eq!(scalar_to_string(&serde_json::json!(10)), "10");
+        assert_eq!(scalar_to_string(&serde_json::json!(10.5)), "10.5");
+        // Out-of-i64-range floats fall back to default rendering — never the
+        // silently-wrong saturated integer that an unguarded `as i64` would give.
+        let big = scalar_to_string(&serde_json::json!(1e300));
+        assert_ne!(big, i64::MAX.to_string(), "must not saturate; got {big}");
     }
 
     #[test]

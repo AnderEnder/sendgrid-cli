@@ -62,11 +62,19 @@ fn coerce_value(val: &mut Value, ty: &str, item_ty: Option<&str>, format: Option
             }
         }
         "number" => {
-            if let Value::String(s) = val
-                && let Ok(n) = s.trim().parse::<f64>()
-                && let Some(num) = serde_json::Number::from_f64(n)
-            {
-                *val = Value::Number(num);
+            if let Value::String(s) = val {
+                let t = s.trim();
+                // Prefer an integer value for whole numbers so the IR carries
+                // (and the wire emits) `10`, not `10.0` — SendGrid declares
+                // count-like params (`page_size`, `limit`) as `number` but
+                // rejects a fractional rendering as "must be an integer".
+                if let Ok(n) = t.parse::<i64>() {
+                    *val = Value::from(n);
+                } else if let Ok(n) = t.parse::<f64>()
+                    && let Some(num) = serde_json::Number::from_f64(n)
+                {
+                    *val = Value::Number(num);
+                }
             }
         }
         "boolean" => {
