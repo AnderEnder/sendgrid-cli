@@ -347,3 +347,27 @@ Config-file profiles (multiple accounts, keychain/`key_command` key sources) are
 
 See [docs/architecture.md](docs/architecture.md) for the IR-as-contract design,
 the generator bake-off, and the dispatch pipeline.
+
+---
+
+## Install
+
+```sh
+cargo install sendgrid-cli      # installs the `sendgrid` binary
+```
+
+Published crates: [`sendgrid-cli`](https://crates.io/crates/sendgrid-cli) (the
+binary), [`sendgrid-mcp`](https://crates.io/crates/sendgrid-mcp) (the MCP server
+library), and [`sendgrid-core`](https://crates.io/crates/sendgrid-core) (the
+typed runtime client — `sendgrid-core = "0.1"`).
+
+## License
+
+Licensed under either of [Apache License, Version 2.0](LICENSE-APACHE) or
+[MIT license](LICENSE-MIT) at your option. Unless you explicitly state
+otherwise, any contribution intentionally submitted for inclusion in this work
+by you, as defined in the Apache-2.0 license, shall be dual licensed as above,
+without any additional terms or conditions.
+
+> Unofficial. "SendGrid" is a trademark of Twilio Inc.; this project is not
+> affiliated with or endorsed by Twilio.
