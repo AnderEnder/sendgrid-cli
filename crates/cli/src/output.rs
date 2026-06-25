@@ -7,7 +7,8 @@
 //!   metadata is dropped (use json for that).
 //! - **errors**: the verbatim `error` body goes to **stderr**; the exit code is
 //!   `result.exit_code`.
-//! - **--dry-run**: prints the `request_preview`.
+//! - **--dry-run**: prints the `request_preview`, with oversized string fields bounded
+//!   for legibility; `--query` selects into it at full fidelity (unbounded).
 
 use crate::globals::{GlobalOpts, OutputFormat};
 use sendgrid_core::ExecuteResult;
@@ -31,12 +32,22 @@ pub fn render(result: &ExecuteResult, globals: &GlobalOpts) -> i32 {
         return result.exit_code;
     }
 
-    // Dry-run: show the constructed request preview.
+    // Dry-run: show the constructed request preview. By default the preview is BOUNDED
+    // (oversized string fields truncated) so a large body — e.g. a 13 KB html_content —
+    // doesn't flood the caller's context; the structure (method, url, keys, short
+    // values) stays exact so the request can still be confirmed. `--query` is the
+    // full-fidelity escape hatch: it selects into the preview unbounded, so
+    // `--query body.html_content` returns the whole field.
     if globals.dry_run {
-        match &result.request_preview {
-            Some(preview) => println!("{}", to_json_string(preview, stdout_tty)),
-            None => println!("{}", to_json_string(&envelope_value(result), stdout_tty)),
-        }
+        let preview = result
+            .request_preview
+            .clone()
+            .unwrap_or_else(|| envelope_value(result));
+        let rendered = match &globals.query {
+            Some(q) => select(&preview, q),
+            None => bound_preview(&preview),
+        };
+        println!("{}", to_json_string(&rendered, stdout_tty));
         return result.exit_code;
     }
 
@@ -65,6 +76,35 @@ pub fn render(result: &ExecuteResult, globals: &GlobalOpts) -> i32 {
     }
 
     result.exit_code
+}
+
+/// Max length (chars) of a string value rendered in a default (unqueried) dry-run
+/// preview before it is truncated with a `…[+N chars]` marker.
+const PREVIEW_STR_MAX: usize = 500;
+
+/// Bound a dry-run preview for legibility: recursively truncate any string longer than
+/// [`PREVIEW_STR_MAX`], preserving structure and short values verbatim. Lets an agent
+/// confirm the request shape (endpoint, method, keys, `active`, etc.) without a large
+/// body field dumping thousands of tokens into context. `--query` bypasses this.
+fn bound_preview(v: &Value) -> Value {
+    match v {
+        Value::String(s) => {
+            let len = s.chars().count();
+            if len > PREVIEW_STR_MAX {
+                let kept: String = s.chars().take(PREVIEW_STR_MAX).collect();
+                Value::String(format!("{kept}…[+{} chars]", len - PREVIEW_STR_MAX))
+            } else {
+                v.clone()
+            }
+        }
+        Value::Array(a) => Value::Array(a.iter().map(bound_preview).collect()),
+        Value::Object(m) => Value::Object(
+            m.iter()
+                .map(|(k, val)| (k.clone(), bound_preview(val)))
+                .collect(),
+        ),
+        other => other.clone(),
+    }
 }
 
 fn envelope_value(result: &ExecuteResult) -> Value {
@@ -299,6 +339,40 @@ mod tests {
         assert_eq!(select(&data, "result[].id"), json!([1, 2]));
         assert_eq!(select(&data, ".result.0.name"), json!("a"));
         assert_eq!(select(&data, "missing"), json!(null));
+    }
+
+    #[test]
+    fn bound_preview_truncates_only_oversized_strings() {
+        let big = "x".repeat(PREVIEW_STR_MAX + 100);
+        let preview = json!({
+            "method": "POST",
+            "url": "https://api/v3/templates/d-1/versions",
+            "body": { "active": 1, "name": "short", "html_content": big }
+        });
+        let bounded = bound_preview(&preview);
+        // Structure and short values stay exact.
+        assert_eq!(bounded["method"], json!("POST"));
+        assert_eq!(bounded["body"]["active"], json!(1));
+        assert_eq!(bounded["body"]["name"], json!("short"));
+        // The oversized field is truncated with a marker, not dumped whole.
+        let html = bounded["body"]["html_content"].as_str().unwrap();
+        assert!(
+            html.len() < PREVIEW_STR_MAX + 100,
+            "oversized field not bounded"
+        );
+        assert!(
+            html.contains("…[+100 chars]"),
+            "missing truncation marker: {html}"
+        );
+
+        // --query is the full-fidelity escape hatch: the selected field comes back whole.
+        assert_eq!(
+            select(&preview, "body.html_content")
+                .as_str()
+                .unwrap()
+                .len(),
+            big.len()
+        );
     }
 
     #[test]

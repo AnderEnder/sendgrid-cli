@@ -72,8 +72,11 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Data region to route to (default: global)"),
     )
     .arg(
+        // `global(true)`: accepted before OR after the subcommand. Safe because no API
+        // operation declares an `output` param, so there is no leaf-flag collision.
         Arg::new("output")
             .long("output")
+            .global(true)
             .value_name("json|table|csv|ndjson")
             .value_parser(["json", "table", "csv", "ndjson"])
             .default_value("json")
@@ -86,14 +89,20 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("jq-lite field selector over `data` (e.g. result[].id)"),
     )
     .arg(
+        // `global(true)`: agents naturally place --dry-run next to the operation (after
+        // the subcommand). Globalizing it accepts both positions. No API op declares a
+        // `dry-run` param, so there is no leaf-flag collision.
         Arg::new("dry-run")
             .long("dry-run")
+            .global(true)
             .action(ArgAction::SetTrue)
-            .help("Build and preview the request without sending it"),
+            .help("Build and preview the request without sending it (accepted anywhere)"),
     )
     .arg(
+        // `global(true)`: no API op declares an `all` param — safe to accept anywhere.
         Arg::new("all")
             .long("all")
+            .global(true)
             .action(ArgAction::SetTrue)
             .help("Auto-paginate: follow pages up to --limit / page caps"),
     )
@@ -111,14 +120,19 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Starting offset (injected into the query for offset-paginated ops)"),
     )
     .arg(
+        // `global(true)`: the long-name is `page-token` (hyphen) while the API param is
+        // `page_token` (underscore), so there is no leaf-flag collision.
         Arg::new("page-token")
             .long("page-token")
+            .global(true)
             .value_name("TOKEN")
             .help("Page token (injected into the query for page-token ops)"),
     )
     .arg(
+        // `global(true)`: long-name `include-legacy` (hyphen); no API param matches.
         Arg::new("include-legacy")
             .long("include-legacy")
+            .global(true)
             .action(ArgAction::SetTrue)
             .help("Expose hidden/legacy operations in the tree and search"),
     )
@@ -141,8 +155,10 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Governed impersonation subuser (authorized by being passed here)"),
     )
     .arg(
+        // `global(true)`: long-name `api-key` (hyphen); no API param matches.
         Arg::new("api-key")
             .long("api-key")
+            .global(true)
             .value_name("KEY")
             .help("API key (discouraged — prefer the SENDGRID_API_KEY env var)"),
     )

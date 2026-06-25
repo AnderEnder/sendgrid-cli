@@ -2,8 +2,9 @@
 //!
 //! The command tree is built **at runtime** from `sendgrid_core::Registry`
 //! (clap builder API, no derive). Every operation becomes a leaf command; global
-//! flags are root-level; `execute()` in `sendgrid-core` is the single dispatch
-//! chokepoint. See the module docs for the `cli_path` → command convention.
+//! flags are defined at the root, and several (e.g. `--dry-run`, `--output`) are
+//! accepted anywhere via clap `global(true)`; `execute()` in `sendgrid-core` is the
+//! single dispatch chokepoint. See the module docs for the `cli_path` → command convention.
 
 mod auth;
 mod envelope;
@@ -261,6 +262,57 @@ mod tests {
         let globals = GlobalOpts::from_matches(&matches).expect("globals");
         assert!(globals.dry_run);
         assert_eq!(globals.output, globals::OutputFormat::Table);
+    }
+
+    #[test]
+    fn global_flags_parse_after_subcommand() {
+        // Agents naturally place --dry-run/--output next to the operation (after the
+        // subcommand). With `global(true)` these are accepted there AND still read from
+        // the root matches. Building the FULL tree (include_legacy=true) also makes this
+        // a collision detector: clap panics on a duplicate long-name across all ops, so
+        // a clean parse proves none of the globalized flags collide with a leaf param.
+        let (command, _resolve) = tree::build(true);
+        let matches = command
+            .try_get_matches_from([
+                "sendgrid",
+                "mail",
+                "send",
+                "send-mail",
+                "--body",
+                "{}",
+                "--dry-run",
+                "--output",
+                "table",
+            ])
+            .expect("global flags after the subcommand parse");
+        let globals = GlobalOpts::from_matches(&matches).expect("globals");
+        assert!(
+            globals.dry_run,
+            "--dry-run after the subcommand must be visible from the root matches"
+        );
+        assert_eq!(globals.output, globals::OutputFormat::Table);
+    }
+
+    #[test]
+    fn allow_explicit_still_detected() {
+        // Policy flags are intentionally NOT globalized (they gate the mcp read-only
+        // default via value_source == CommandLine). Guard that --allow before the
+        // subcommand is still detected as an explicit choice.
+        let (command, _resolve) = tree::build(false);
+        let matches = command
+            .try_get_matches_from([
+                "sendgrid",
+                "--allow",
+                "read",
+                "mail",
+                "send",
+                "send-mail",
+                "--body",
+                "{}",
+            ])
+            .expect("parse with --allow");
+        let globals = GlobalOpts::from_matches(&matches).expect("globals");
+        assert!(globals.allow_explicit, "--allow must register as explicit");
     }
 
     #[test]
