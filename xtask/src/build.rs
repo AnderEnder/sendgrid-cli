@@ -675,7 +675,10 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
         .iter()
         .map(|d| format!("{}.{}.{}", d.op, d.location, d.name))
         .collect();
-    let missing_defaults: Vec<_> = want_defaults.difference(&applied_defaults).cloned().collect();
+    let missing_defaults: Vec<_> = want_defaults
+        .difference(&applied_defaults)
+        .cloned()
+        .collect();
     if !missing_defaults.is_empty() {
         bail!("defaults never applied (op/param not found?): {missing_defaults:?}");
     }
