@@ -11,10 +11,11 @@ dispatch chokepoint:
 
 - **CLI** — `sendgrid <domain> <subgroup> <verb>-<noun>`
   (e.g. `sendgrid mail send send-mail --body @msg.json`).
-- **MCP server** — `sendgrid mcp` exposes the entire API through **3 meta-tools**
-  (`search_operations` → `describe_operation` → `invoke_operation`) so an agent
-  discovers and calls any operation without 391 tool definitions bloating its
-  context.
+- **MCP server** — `sendgrid mcp` exposes the entire API through a small meta-tool
+  surface — the `search_operations` → `describe_operation` → `invoke_operation`
+  workflow, plus a `read_doc` tool and MCP **resources** (an on-demand usage skill +
+  reference docs) and **prompts** — so an agent discovers and calls any operation
+  without 391 tool definitions bloating its context.
 
 Both paths funnel through the same `execute()` function in `sendgrid-core`, so
 validation, the side-effect policy, secret redaction, region routing, pagination,
@@ -258,9 +259,9 @@ it is **never** an MCP tool parameter:
 > Use an absolute path for `command` (e.g. `/usr/local/bin/sendgrid` or the
 > `cargo install` location) if `sendgrid` is not on your client's PATH.
 
-### The 3-tool workflow
+### The core workflow (search → describe → invoke)
 
-The agent sees only three tools and an instructions string that teaches the loop:
+The discovery loop is three tools, taught by the instructions string:
 
 1. **`search_operations`** `{ query, [domain], [tags], [side_effect], [method], [limit] }`
    → ranked, metadata-only hits (`id`, `summary`, `method`, `path`, `side_effect`,
@@ -275,6 +276,14 @@ The agent sees only three tools and an instructions string that teaches the loop
 
 Operation ids are `sg_<domain>_<subgroup>_<operationId>` (the subgroup is dropped
 when it equals the domain), e.g. `sg_mail_send_SendMail`.
+
+Beyond the loop, the server exposes a **`read_doc`** tool and matching MCP
+**resources** — an on-demand "using-the-server" skill plus reference docs
+(`sendgrid://skill/using-the-server`, `sendgrid://reference/{side-effects,regions,async-jobs}`)
+— so deep guidance stays out of the always-loaded instructions until needed. Every tool
+carries MCP behavior **annotations** (read-only / destructive / idempotent hints) and
+returns **structured content**, and two **prompts** (`find_operation`, `safe_invoke`)
+provide human-driven entry points.
 
 ### Hardening the MCP server
 

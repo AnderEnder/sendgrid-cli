@@ -15,7 +15,7 @@ sendgrid-core::Registry  (391 × OperationIr, &'static)
         │
         ├──────────────► sendgrid-core::execute()  ◄── the one chokepoint
         │                        ▲          ▲
-   crates/cli (clap tree)  ──────┘          └────── crates/mcp (3 meta-tools)
+   crates/cli (clap tree)  ──────┘          └────── crates/mcp (meta-tools + resources/prompts)
 ```
 
 ## IR as the contract

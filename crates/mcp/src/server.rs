@@ -1,17 +1,21 @@
-//! The dynamic `ServerHandler`: a fixed 3-tool meta surface (+ optional promoted
-//! tools), with names and input schemas built from runtime IR data. We override
-//! `list_tools`/`call_tool` and validate the tool name ourselves (rmcp's default
-//! `get_tool` returns `None`, bypassing its built-in validation).
+//! The dynamic `ServerHandler`: a fixed meta-tool surface (search/describe/invoke +
+//! read_doc, plus resources & prompts) and optional promoted tools, with names and
+//! input schemas built from runtime IR data. We override `list_tools`/`call_tool` and
+//! validate the tool name ourselves (rmcp's default `get_tool` returns `None`,
+//! bypassing its built-in validation).
 
-use crate::{describe, invoke, schema, search};
+use crate::{describe, docs, invoke, prompts, schema, search};
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, Content, Implementation, ListToolsResult,
-        PaginatedRequestParams, ServerCapabilities, ServerInfo, Tool,
+        CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
+        Implementation, ListPromptsResult, ListResourcesResult, ListToolsResult,
+        PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
+        ServerInfo, Tool, ToolAnnotations,
     },
     service::RequestContext,
 };
+use sendgrid_core::ir::{OperationIr, SideEffect};
 use sendgrid_core::{Registry, RuntimeConfig};
 use serde_json::{Map, Value};
 use std::sync::Arc;
@@ -24,6 +28,8 @@ struct PromotedTool {
     name: String,
     description: String,
     input_schema: Arc<Map<String, Value>>,
+    /// Behavior hints derived from the op's side-effect class + HTTP method.
+    annotations: ToolAnnotations,
     /// Canonical op id used to resolve the op at call time.
     op_id: String,
 }
@@ -52,10 +58,13 @@ impl SgServer {
         self.promoted.iter().map(|p| p.name.clone()).collect()
     }
 
+    /// A successful JSON result, returned as both `structured_content` (for modern
+    /// clients that parse/validate) and stringified text (for text-only clients).
     fn ok(v: Value) -> CallToolResult {
-        CallToolResult::success(vec![Content::text(v.to_string())])
+        CallToolResult::structured(v)
     }
 
+    /// A usage error (a plain message, not a JSON envelope): text content, `isError`.
     fn err(msg: String) -> CallToolResult {
         CallToolResult::error(vec![Content::text(msg)])
     }
@@ -66,15 +75,16 @@ impl SgServer {
     /// MCP-level `isError` bit changes, so a convention-following agent no longer
     /// reads a denied/failed call as success.
     fn from_envelope(v: Value) -> CallToolResult {
-        let content = vec![Content::text(v.to_string())];
         if envelope_is_error(&v) {
-            CallToolResult::error(content)
+            CallToolResult::structured_error(v)
         } else {
-            CallToolResult::success(content)
+            CallToolResult::structured(v)
         }
     }
 
-    /// The advertised tool list: 3 meta-tools + any promoted tools.
+    /// The advertised tool list: the meta-tools + any promoted tools. Each tool carries
+    /// MCP `annotations` (behavior hints) and, where the shape is stable, an
+    /// `output_schema` declaring the structured result.
     fn build_tools(&self) -> Vec<Tool> {
         let mut tools = vec![
             Tool::new(
@@ -82,14 +92,17 @@ impl SgServer {
                 "Search the 391 SendGrid operations by keyword. Returns metadata-only hits \
                  (id, summary, method, path, side_effect, tags) ranked by relevance. START HERE.",
                 schema::arc_object(schema::search_schema()),
-            ),
+            )
+            .with_annotations(read_only_annot())
+            .with_raw_output_schema(schema::arc_object(schema::search_output_schema())),
             Tool::new(
                 "describe_operation",
                 "Describe one operation by id: params, required fields, a compact body example, \
                  cross-field constraints, and a compact response field-menu for chaining. Use \
                  before invoke_operation. expand=full returns the entire request + response schema.",
                 schema::arc_object(schema::describe_schema()),
-            ),
+            )
+            .with_annotations(read_only_annot()),
             Tool::new(
                 "invoke_operation",
                 "Invoke an operation by id with {path_params, query, headers, body}. Optional: \
@@ -97,26 +110,68 @@ impl SgServer {
                  Safety policy, validation, and secret redaction are enforced server-side; isError \
                  reflects failures.",
                 schema::arc_object(schema::invoke_schema()),
-            ),
+            )
+            // Polymorphic dispatcher (GET..DELETE depending on `id`): no static
+            // read-only/destructive hint would be correct — only the open-world hint is.
+            .with_annotations(ToolAnnotations::new().open_world(true))
+            .with_raw_output_schema(schema::arc_object(schema::invoke_output_schema())),
+            Tool::new(
+                "read_doc",
+                "Read this server's docs: the `using-the-server` skill and reference docs \
+                 (side-effects, regions, async-jobs). Call with no args to list them, or pass \
+                 {uri} to read one. Same content as the MCP resources.",
+                schema::arc_object(schema::read_doc_schema()),
+            )
+            .with_annotations(ToolAnnotations::new().read_only(true).open_world(false)),
         ];
         for p in self.promoted.iter() {
-            tools.push(Tool::new(
-                p.name.clone(),
-                p.description.clone(),
-                p.input_schema.clone(),
-            ));
+            tools.push(
+                Tool::new(
+                    p.name.clone(),
+                    p.description.clone(),
+                    p.input_schema.clone(),
+                )
+                .with_annotations(p.annotations.clone()),
+            );
         }
         tools
     }
 }
 
+/// Hints for a read-only meta-tool that doesn't touch the outside world directly.
+fn read_only_annot() -> ToolAnnotations {
+    ToolAnnotations::new().read_only(true)
+}
+
+/// Derive a promoted tool's behavior hints from its side-effect class + HTTP method.
+/// Each promoted tool is 1:1 with a known operation, so (unlike `invoke_operation`) a
+/// static hint is correct here.
+fn promoted_annotations(op: &OperationIr) -> ToolAnnotations {
+    let a = ToolAnnotations::new().open_world(true);
+    // GET/PUT/DELETE/HEAD are idempotent by HTTP semantics; POST/PATCH are not.
+    let idempotent = matches!(op.method.as_str(), "GET" | "PUT" | "DELETE" | "HEAD");
+    match &op.side_effect {
+        SideEffect::Read => a.read_only(true),
+        SideEffect::Write => a.read_only(false).destructive(false).idempotent(idempotent),
+        SideEffect::Destructive => a.read_only(false).destructive(true).idempotent(idempotent),
+        // `send` emits to the outside world but isn't "destructive" of existing state.
+        SideEffect::Send => a.read_only(false).destructive(false).idempotent(false),
+    }
+}
+
 impl ServerHandler for SgServer {
     fn get_info(&self) -> ServerInfo {
-        ServerInfo::new(ServerCapabilities::builder().enable_tools().build())
-            // Identify as `sendgrid` (not rmcp's build-env default `sendgrid_mcp`),
-            // with this crate's real version, so clients display a stable identity.
-            .with_server_info(Implementation::new("sendgrid", env!("CARGO_PKG_VERSION")))
-            .with_instructions(crate::instructions::INSTRUCTIONS)
+        ServerInfo::new(
+            ServerCapabilities::builder()
+                .enable_tools()
+                .enable_resources()
+                .enable_prompts()
+                .build(),
+        )
+        // Identify as `sendgrid` (not rmcp's build-env default `sendgrid_mcp`),
+        // with this crate's real version, so clients display a stable identity.
+        .with_server_info(Implementation::new("sendgrid", env!("CARGO_PKG_VERSION")))
+        .with_instructions(crate::instructions::INSTRUCTIONS)
     }
 
     async fn list_tools(
@@ -125,6 +180,45 @@ impl ServerHandler for SgServer {
         _ctx: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, McpError> {
         Ok(ListToolsResult::with_all_items(self.build_tools()))
+    }
+
+    // ---- Resources: the skill + reference docs (see `docs.rs`) ----
+
+    async fn list_resources(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListResourcesResult, McpError> {
+        Ok(ListResourcesResult::with_all_items(docs::list()))
+    }
+
+    async fn read_resource(
+        &self,
+        request: ReadResourceRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ReadResourceResult, McpError> {
+        docs::read(&request.uri).ok_or_else(|| {
+            McpError::invalid_params(format!("unknown resource uri: {}", request.uri), None)
+        })
+    }
+
+    // ---- Prompts: user-invokable workflow templates (see `prompts.rs`) ----
+
+    async fn list_prompts(
+        &self,
+        _request: Option<PaginatedRequestParams>,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<ListPromptsResult, McpError> {
+        Ok(ListPromptsResult::with_all_items(prompts::list()))
+    }
+
+    async fn get_prompt(
+        &self,
+        request: GetPromptRequestParams,
+        _ctx: RequestContext<RoleServer>,
+    ) -> Result<GetPromptResult, McpError> {
+        let args = request.arguments.unwrap_or_default();
+        prompts::get(&request.name, &args).map_err(|msg| McpError::invalid_params(msg, None))
     }
 
     async fn call_tool(
@@ -159,6 +253,13 @@ impl SgServer {
                 invoke::InvokeOutcome::Envelope(v) => Ok(Self::from_envelope(v)),
                 invoke::InvokeOutcome::UsageError(msg) => Ok(Self::err(msg)),
             },
+            "read_doc" => {
+                let uri = args.get("uri").and_then(Value::as_str);
+                match docs::read_doc(uri) {
+                    Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
+                    Err(msg) => Ok(Self::err(msg)),
+                }
+            }
             other => {
                 // Promoted (first-class) tool?
                 if let Some(p) = self.promoted.iter().find(|p| p.name == other) {
@@ -232,6 +333,7 @@ fn resolve_promoted(cfg: &McpServerConfig) -> Vec<PromotedTool> {
                 op.id
             ),
             input_schema: schema::arc_object(schema::promoted_schema(op)),
+            annotations: promoted_annotations(op),
             op_id: op.id.clone(),
         })
         .collect()
@@ -271,35 +373,132 @@ mod tests {
         }
     }
 
+    /// The default surface is the 4 meta-tools (search/describe/invoke + read_doc).
     #[test]
-    fn default_surface_is_exactly_three_tools() {
+    fn default_surface_is_the_four_meta_tools() {
         let s = SgServer::new(cfg(vec![], vec![], false));
         // build_tools mirrors list_tools without needing a RequestContext.
         let tools = s.build_tools();
-        assert_eq!(tools.len(), 3, "default surface must be the 3 meta-tools");
+        assert_eq!(tools.len(), 4, "default surface must be the 4 meta-tools");
         let names: Vec<&str> = tools.iter().map(|t| t.name.as_ref()).collect();
-        assert!(names.contains(&"search_operations"));
-        assert!(names.contains(&"describe_operation"));
-        assert!(names.contains(&"invoke_operation"));
+        for want in [
+            "search_operations",
+            "describe_operation",
+            "invoke_operation",
+            "read_doc",
+        ] {
+            assert!(names.contains(&want), "missing meta-tool {want}");
+        }
+    }
+
+    /// Annotations map from each tool's nature: search/describe/read_doc are read-only;
+    /// invoke_operation carries NO static read-only/destructive hint (it's a polymorphic
+    /// dispatcher) — only the open-world hint. search/invoke declare an output schema.
+    #[test]
+    fn meta_tool_annotations_and_output_schemas() {
+        let s = SgServer::new(cfg(vec![], vec![], false));
+        let tools = s.build_tools();
+        let by = |n: &str| tools.iter().find(|t| t.name.as_ref() == n).unwrap().clone();
+
+        assert_eq!(
+            by("search_operations").annotations.unwrap().read_only_hint,
+            Some(true)
+        );
+        let read_doc = by("read_doc").annotations.unwrap();
+        assert_eq!(read_doc.read_only_hint, Some(true));
+        assert_eq!(read_doc.open_world_hint, Some(false));
+
+        let invoke = by("invoke_operation").annotations.unwrap();
+        assert_eq!(
+            invoke.read_only_hint, None,
+            "invoke is polymorphic — no static read-only hint"
+        );
+        assert_eq!(invoke.destructive_hint, None);
+        assert_eq!(invoke.open_world_hint, Some(true));
+
+        assert!(by("search_operations").output_schema.is_some());
+        assert!(by("invoke_operation").output_schema.is_some());
+        assert!(by("describe_operation").output_schema.is_none());
+    }
+
+    #[tokio::test]
+    async fn read_doc_dispatches_to_skill_and_lists() {
+        let s = SgServer::new(cfg(vec![], vec![], false));
+
+        // With a uri → that doc's markdown body.
+        let mut a = Map::new();
+        a.insert("uri".into(), json!("sendgrid://skill/using-the-server"));
+        let r = s.dispatch_tool("read_doc", a).await.unwrap();
+        let text = serde_json::to_value(&r).unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(text.contains("search \u{2192} describe \u{2192} invoke"));
+
+        // With no uri → an index naming the skill.
+        let r = s.dispatch_tool("read_doc", Map::new()).await.unwrap();
+        let text = serde_json::to_value(&r).unwrap()["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .to_string();
+        assert!(text.contains("sendgrid://skill/using-the-server"));
+    }
+
+    #[tokio::test]
+    async fn search_result_carries_structured_content() {
+        let s = SgServer::new(cfg(vec![], vec![], false));
+        let mut a = Map::new();
+        a.insert("query".into(), json!("send email"));
+        let r = s.dispatch_tool("search_operations", a).await.unwrap();
+        assert!(
+            r.structured_content
+                .as_ref()
+                .and_then(|v| v.get("results"))
+                .is_some(),
+            "search result should carry structured_content"
+        );
     }
 
     #[test]
     fn expose_op_promotes_first_class_tool() {
         let s = SgServer::new(cfg(vec!["sg_mail_send_SendMail".into()], vec![], false));
         let tools = s.build_tools();
-        assert_eq!(tools.len(), 4);
-        assert!(
-            tools
-                .iter()
-                .any(|t| t.name.as_ref() == "sg_mail_send_SendMail")
-        );
-        // Promoted tool advertises side-effect info in its description.
+        assert_eq!(tools.len(), 5, "4 meta-tools + 1 promoted");
         let promoted = tools
             .iter()
             .find(|t| t.name.as_ref() == "sg_mail_send_SendMail")
-            .unwrap();
+            .expect("promoted tool present");
+        // Promoted tool advertises side-effect info in its description.
         let desc = promoted.description.as_deref().unwrap_or_default();
         assert!(desc.contains("Send"), "side-effect not advertised: {desc}");
+        // A `send` op is not read-only and not destructive.
+        let ann = promoted.annotations.clone().unwrap();
+        assert_eq!(ann.read_only_hint, Some(false));
+        assert_eq!(ann.destructive_hint, Some(false));
+    }
+
+    /// A promoted DELETE op carries a destructive + idempotent hint (annotations per op).
+    #[test]
+    fn promoted_delete_is_annotated_destructive() {
+        let reg = Registry::global();
+        let delete_id = reg
+            .operations()
+            .iter()
+            .find(|o| o.side_effect == SideEffect::Destructive && o.method == "DELETE" && !o.hidden)
+            .map(|o| o.id.clone())
+            .expect("a destructive DELETE op exists");
+        let s = SgServer::new(cfg(vec![delete_id.clone()], vec![], false));
+        let ann = s
+            .build_tools()
+            .iter()
+            .find(|t| t.name.as_ref() == delete_id)
+            .unwrap()
+            .annotations
+            .clone()
+            .unwrap();
+        assert_eq!(ann.read_only_hint, Some(false));
+        assert_eq!(ann.destructive_hint, Some(true));
+        assert_eq!(ann.idempotent_hint, Some(true), "DELETE is idempotent");
     }
 
     #[test]
@@ -312,7 +511,7 @@ mod tests {
     #[test]
     fn unknown_expose_op_is_ignored() {
         let s = SgServer::new(cfg(vec!["sg_nope_nope_Nope".into()], vec![], false));
-        assert_eq!(s.build_tools().len(), 3);
+        assert_eq!(s.build_tools().len(), 4);
     }
 
     /// Extract the JSON the handler put into a `CallToolResult`'s text content.

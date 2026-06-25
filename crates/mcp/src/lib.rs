@@ -1,5 +1,7 @@
-//! `sendgrid-mcp` — the rmcp-based MCP server exposing the 3 meta-tools
-//! (search_operations / describe_operation / invoke_operation) over the IR.
+//! `sendgrid-mcp` — the rmcp-based MCP server. The core surface is the
+//! search_operations → describe_operation → invoke_operation workflow over the IR,
+//! plus a `read_doc` tool and MCP resources (an on-demand usage skill + reference
+//! docs) and prompts. Tools carry behavior annotations and return structured content.
 //!
 //! The CLI hosts this via `sendgrid mcp`, so the public entrypoint below is a
 //! **frozen contract** the CLI depends on. P3 fills in the implementation; the
@@ -12,8 +14,10 @@
 //! tool list + dispatch entirely from registry data, served over stdio.
 
 mod describe;
+mod docs;
 mod instructions;
 mod invoke;
+mod prompts;
 mod schema;
 mod search;
 mod server;

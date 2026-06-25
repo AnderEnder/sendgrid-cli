@@ -1,6 +1,6 @@
 //! JSON-Schema (input_schema) construction for the tools we advertise.
 //!
-//! The 3 meta-tool schemas are fixed. Promoted (`--expose-*`) tools build their
+//! The meta-tool input schemas are fixed. Promoted (`--expose-*`) tools build their
 //! schema from the op's `params` (bucketed flat, one property per param) plus a
 //! `body` property when the op carries a request body.
 
@@ -70,6 +70,67 @@ pub fn invoke_schema() -> Value {
             }
         },
         "required": ["id"]
+    })
+}
+
+/// Input schema for the `read_doc` tool: an optional `uri` (omit to list available docs).
+pub fn read_doc_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "uri": {
+                "type": "string",
+                "description": "Doc URI to read (e.g. sendgrid://skill/using-the-server). Omit to list available docs."
+            }
+        }
+    })
+}
+
+/// Declared `output_schema` for `search_operations`. Deliberately permissive (no
+/// `additionalProperties:false`) so it documents the stable shape without inviting
+/// client-side validation failures on extra fields.
+pub fn search_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "query": { "type": "string" },
+            "count": { "type": "integer" },
+            "results": {
+                "type": "array",
+                "items": {
+                    "type": "object",
+                    "properties": {
+                        "id": { "type": "string" },
+                        "summary": { "type": "string" },
+                        "method": { "type": "string" },
+                        "path": { "type": "string" },
+                        "side_effect": { "type": "string" },
+                        "tags": { "type": "array", "items": { "type": "string" } }
+                    }
+                }
+            }
+        },
+        "required": ["query", "count", "results"]
+    })
+}
+
+/// Declared `output_schema` for `invoke_operation`: the uniform result envelope. Loose
+/// on purpose — `data`/`error`/`next` are operation-specific, and dry-runs omit several
+/// fields — so only the always-meaningful keys are typed and nothing is required.
+pub fn invoke_output_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "status": { "type": "integer", "description": "HTTP status; 0 = nothing sent (dry-run or pre-flight failure)." },
+            "side_effect": { "type": "string", "enum": ["read", "write", "destructive", "send"] },
+            "exit_code": { "type": "integer" },
+            "code": { "type": "string", "description": "Error code (e.g. E_POLICY_DENIED) on failure." },
+            "request_preview": { "type": "object" },
+            "warnings": { "type": "array" },
+            "data": { "description": "Success payload (operation-specific)." },
+            "error": { "description": "Failure payload (verbatim SendGrid body or {code,message})." },
+            "next": { "description": "Pagination/continuation hint when a capped run stopped early." }
+        }
     })
 }
 
