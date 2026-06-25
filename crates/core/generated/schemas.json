@@ -7224,19 +7224,15 @@
       },
       "category": {
         "description": "The categories associated with the message.",
-        "examples": {
-          "multiCategory": {
-            "value": [
-              "category1",
-              "category2"
-            ]
-          },
-          "singleCategory": {
-            "value": [
-              "category1"
-            ]
-          }
-        },
+        "examples": [
+          [
+            "category1",
+            "category2"
+          ],
+          [
+            "category1"
+          ]
+        ],
         "items": {
           "type": "string"
         },

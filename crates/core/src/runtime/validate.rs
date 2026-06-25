@@ -12,7 +12,6 @@
 
 use crate::ir::{Constraint, Location, OperationIr};
 use crate::registry::Registry;
-use jsonschema::{Draft, JSONSchema};
 use serde::Serialize;
 use serde_json::{Map, Value};
 
@@ -97,31 +96,32 @@ pub fn validate(registry: &Registry, op: &OperationIr, args: &Value) -> Validati
         let secret_values = collect_secret_request_values(&body, &op.secret_request_fields);
         match compile(schema) {
             Ok(compiled) => {
-                if let Err(errors) = compiled.validate(&body) {
-                    for e in errors {
-                        let ptr = e.instance_path.to_string();
-                        let pointer = if ptr.is_empty() {
-                            "body".to_string()
-                        } else {
-                            format!("body{ptr}")
-                        };
-                        let in_secret_subtree = ptr.split('/').any(|seg| {
-                            !seg.is_empty()
-                                && op
-                                    .secret_request_fields
-                                    .iter()
-                                    .any(|f| f.eq_ignore_ascii_case(seg))
-                        });
-                        let message = if in_secret_subtree {
-                            format!(
-                                "value at `{pointer}` failed body-schema validation \
-                                 (value omitted: secret field)"
-                            )
-                        } else {
-                            scrub_secret_values(&e.to_string(), &secret_values)
-                        };
-                        report.issues.push(ValidationIssue { pointer, message });
-                    }
+                // 0.46: `validate` returns only the FIRST error; `iter_errors`
+                // yields ALL of them (the collect-everything behavior we want).
+                for e in compiled.iter_errors(&body) {
+                    // 0.46: `instance_path` is a method (was a field in 0.18).
+                    let ptr = e.instance_path().to_string();
+                    let pointer = if ptr.is_empty() {
+                        "body".to_string()
+                    } else {
+                        format!("body{ptr}")
+                    };
+                    let in_secret_subtree = ptr.split('/').any(|seg| {
+                        !seg.is_empty()
+                            && op
+                                .secret_request_fields
+                                .iter()
+                                .any(|f| f.eq_ignore_ascii_case(seg))
+                    });
+                    let message = if in_secret_subtree {
+                        format!(
+                            "value at `{pointer}` failed body-schema validation \
+                             (value omitted: secret field)"
+                        )
+                    } else {
+                        scrub_secret_values(&e.to_string(), &secret_values)
+                    };
+                    report.issues.push(ValidationIssue { pointer, message });
                 }
             }
             Err(why) => {
@@ -273,10 +273,9 @@ fn check_constraints(op: &OperationIr, body: &Value, report: &mut ValidationRepo
 
 /// Compile a schema as Draft 2020-12 (the normalized dialect of the embedded
 /// schemas). Compiled per call; the embedded schemas are small.
-fn compile(schema: &Value) -> Result<JSONSchema, String> {
-    JSONSchema::options()
-        .with_draft(Draft::Draft202012)
-        .compile(schema)
+fn compile(schema: &Value) -> Result<jsonschema::Validator, String> {
+    jsonschema::draft202012::options()
+        .build(schema)
         .map_err(|e| e.to_string())
 }
 

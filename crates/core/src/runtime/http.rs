@@ -1,8 +1,12 @@
 //! The pooled HTTP client (r4 §6 / brief item 8).
 //!
-//! - **ring TLS** (pure Rust, not aws-lc): reqwest is built with
-//!   `rustls-tls-no-provider`, so we install ring as the process-default crypto
-//!   provider here, then `use_rustls_tls()` picks it up.
+//! - **ring TLS** (pure Rust, not aws-lc): reqwest 0.13 dropped the per-roots
+//!   rustls feature variants and now defaults roots to `rustls-platform-verifier`.
+//!   We instead build an explicit [`rustls::ClientConfig`] over the **ring** crypto
+//!   provider + **webpki** (Mozilla) trust anchors and hand it to reqwest via
+//!   [`reqwest::ClientBuilder::tls_backend_preconfigured`]. Baking the roots in
+//!   keeps real TLS handshakes verifying in headless/minimal containers that have
+//!   no OS trust store (the platform-verifier default would fail `UnknownIssuer`).
 //! - **No auto-redirect** (`redirect::Policy::none()`): we never follow redirects,
 //!   so the `Authorization` bearer is never forwarded to a response-supplied host
 //!   (key-exfil defense); callers surface `Location` themselves.
@@ -12,24 +16,26 @@
 use std::sync::OnceLock;
 use std::time::Duration;
 
-/// Install ring as the process-default rustls crypto provider exactly once.
-/// Idempotent: a second install attempt (or one already installed elsewhere) is
-/// ignored.
-fn ensure_crypto_provider() {
-    static INSTALLED: OnceLock<()> = OnceLock::new();
-    INSTALLED.get_or_init(|| {
-        // Returns Err if a default is already set — fine, we just need *a* ring
-        // default to exist before `use_rustls_tls()`.
-        let _ = rustls::crypto::ring::default_provider().install_default();
-    });
+/// A rustls client config pinned to the **ring** provider (not aws-lc) and the
+/// Mozilla **webpki** trust anchors. Self-contained: it carries its own provider,
+/// so no process-default provider need be installed.
+fn rustls_config() -> rustls::ClientConfig {
+    let mut roots = rustls::RootCertStore::empty();
+    roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+    rustls::ClientConfig::builder_with_provider(std::sync::Arc::new(
+        rustls::crypto::ring::default_provider(),
+    ))
+    .with_safe_default_protocol_versions()
+    .expect("ring provider supports the default TLS protocol versions")
+    .with_root_certificates(roots)
+    .with_no_client_auth()
 }
 
 /// Build the hardened pooled client. Panics only if rustls/reqwest cannot
 /// initialize a TLS stack, which is an environment/build fault, not runtime input.
 pub fn build_client() -> reqwest::Client {
-    ensure_crypto_provider();
     reqwest::Client::builder()
-        .use_rustls_tls()
+        .tls_backend_preconfigured(rustls_config())
         .redirect(reqwest::redirect::Policy::none())
         .connect_timeout(Duration::from_secs(10))
         .timeout(Duration::from_secs(60))
@@ -52,8 +58,26 @@ pub(crate) fn shared_client() -> &'static reqwest::Client {
 mod tests {
     #[test]
     fn client_builds_with_ring_tls() {
-        // Proves the ring provider installs and the rustls client constructs.
+        // Proves the explicit ring+webpki rustls config is accepted and the client
+        // constructs. Does NOT exercise a real handshake — see the ignored test below.
         let _client = super::build_client();
         let _shared = super::shared_client();
+    }
+
+    /// Live network: proves the hand-built `rustls::ClientConfig` (ring provider +
+    /// webpki/Mozilla roots, handed to reqwest via `tls_backend_preconfigured`)
+    /// actually completes a TLS handshake. The wiremock suite only drives localhost
+    /// HTTP, so this is the sole guard against a broken trust path (an empty/wrong
+    /// root store would surface here as `UnknownIssuer`, not in any other test).
+    /// A 401 (no API key) is success — reqwest only `Err`s on transport/TLS faults.
+    #[tokio::test]
+    #[ignore = "requires network; verifies the real TLS handshake against webpki roots"]
+    async fn real_tls_handshake_verifies() {
+        let client = super::build_client();
+        let resp = client
+            .get("https://api.sendgrid.com/v3/scopes")
+            .send()
+            .await;
+        assert!(resp.is_ok(), "TLS handshake failed: {resp:?}");
     }
 }

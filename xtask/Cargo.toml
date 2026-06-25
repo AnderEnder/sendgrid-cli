@@ -20,6 +20,7 @@ serde_json.workspace = true
 anyhow.workspace = true
 toml.workspace = true
 openapiv3.workspace = true
-# draft202012 is a non-default jsonschema feature; enabled here (not in the root
-# workspace dep) so codegen can self-gate every emitted INPUT schema as valid 2020-12.
-jsonschema = { workspace = true, features = ["draft202012"] }
+# jsonschema 0.46 builds all drafts in by default (the old `draft202012` feature
+# is obsolete); codegen self-gates every emitted INPUT schema as valid 2020-12 by
+# forcing the dialect at build time via `draft202012::options()`.
+jsonschema.workspace = true

@@ -13,14 +13,18 @@ repository = "https://github.com/andrii/sendgrid-agent-cli"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 anyhow = "1"
-thiserror = "1"
+thiserror = "2"
 toml = "0.8"
 
 # Spec parsing (P0): openapiv3 2.2.0 parses all 46 SendGrid 3.1-stamped/3.0-shaped specs
 # and is the same version progenitor pins, so one parser serves both bake-off backends.
 openapiv3 = "2.2.0"
 # JSON Schema 2020-12 validation (L1 gate + runtime body validation).
-jsonschema = "0.18"
+# default-features = false drops 0.46's `resolve-http`/`resolve-file`/`tls-aws-lc-rs`
+# defaults: we never resolve EXTERNAL $refs (every emitted schema is fully inlined —
+# the codegen gate asserts zero residual $ref), so the reqwest + rustls(aws-lc-rs)
+# stack those features drag in is dead weight. Keeps the build pure-Rust (no aws-lc/cmake).
+jsonschema = { version = "0.46", default-features = false }
 
 # Local path deps
 sendgrid-core = { path = "crates/core" }

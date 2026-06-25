@@ -26,9 +26,8 @@ pub fn pipeline() -> Result<BuildOutput> {
 
 /// Compile one schema under JSON Schema draft 2020-12; `Err` carries a message.
 pub fn compile_schema(schema: &Value) -> std::result::Result<(), String> {
-    jsonschema::JSONSchema::options()
-        .with_draft(jsonschema::Draft::Draft202012)
-        .compile(schema)
+    jsonschema::draft202012::options()
+        .build(schema)
         .map(|_| ())
         .map_err(|e| e.to_string())
 }

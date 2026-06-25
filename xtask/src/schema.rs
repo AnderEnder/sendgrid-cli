@@ -102,6 +102,30 @@ fn normalize_object(mut map: Map<String, Value>) -> Value {
             .or_insert_with(|| Value::Array(vec![example]));
     }
 
+    // JSON Schema 2020-12 requires `examples` to be an ARRAY (it's an annotation).
+    // An OpenAPI MediaType-style `examples` MAP (`{name: {value, ...}, ...}`) can
+    // leak in from the source spec; a strict 2020-12 validator (jsonschema >= 0.46
+    // meta-validates on build) then rejects the WHOLE schema. Normalize a non-array
+    // `examples` into an array — pull each named example's `value` (the OpenAPI
+    // Example Object payload), falling back to the entry itself, or wrap a bare scalar.
+    if map.get("examples").is_some_and(|e| !e.is_array()) {
+        let arr = match map.remove("examples") {
+            Some(Value::Object(named)) => named
+                .into_values()
+                .map(|ex| match ex {
+                    Value::Object(mut o) => match o.remove("value") {
+                        Some(v) => v,
+                        None => Value::Object(o),
+                    },
+                    other => other,
+                })
+                .collect(),
+            Some(other) => vec![other],
+            None => Vec::new(),
+        };
+        map.insert("examples".to_string(), Value::Array(arr));
+    }
+
     Value::Object(map)
 }
 

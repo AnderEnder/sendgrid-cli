@@ -10,21 +10,31 @@ serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
 # JSON Schema 2020-12 body validation. Same version the workspace pins (used by
-# xtask's L1 gate); we only add the `draft202012` feature on top of it.
-jsonschema = { workspace = true, features = ["draft202012"] }
+# xtask's L1 gate). 0.46 builds all drafts in by default — the old `draft202012`
+# feature is obsolete; we force the dialect at build time via `draft202012::options()`.
+jsonschema.workspace = true
 
-# HTTP — pure-Rust ring TLS (NOT aws-lc). `*-no-provider` keeps reqwest from
-# picking a crypto provider (we install ring as the process default in
-# `runtime::http`); the `webpki-roots` variant compiles in the Mozilla trust
-# anchors so real TLS handshakes verify (the bare `*-no-provider` variant ships
-# an EMPTY root store → every handshake fails `UnknownIssuer`). webpki roots are
-# the right call for the headless/container agents we target. reqwest's own
-# rustls dep is `default-features = false`, so no aws-lc is pulled transitively.
-reqwest = { version = "0.12", default-features = false, features = [
+# HTTP — pure-Rust ring TLS (NOT aws-lc). reqwest 0.13 removed the per-roots
+# feature variants; rustls roots now default to `rustls-platform-verifier` (the
+# OS trust store). To keep the Mozilla trust anchors compiled INTO the binary —
+# the right call for the headless/container agents we target, where no OS root
+# store may exist (the bare default would fail every handshake `UnknownIssuer`) —
+# `runtime::http` builds an explicit `rustls::ClientConfig` (ring provider +
+# `webpki-roots`) and hands it to reqwest via `tls_backend_preconfigured`. The
+# `rustls-no-provider` feature enables reqwest's rustls backend WITHOUT pulling
+# the aws-lc-rs provider; reqwest's rustls deps are `default-features = false`, so
+# no aws-lc is dragged in transitively.
+reqwest = { version = "0.13", default-features = false, features = [
     "json",
+    # 0.13 gated `RequestBuilder::query` behind its own feature (always-on in 0.12).
+    "query",
     "http2",
-    "rustls-tls-webpki-roots-no-provider",
+    "rustls-no-provider",
 ] }
+# Mozilla trust anchors for the explicit rustls ClientConfig (see runtime::http).
+# reqwest 0.13 no longer compiles these in behind a feature, so we depend on them
+# directly — still a single resolved copy (reqwest 0.12 pulled this transitively).
+webpki-roots = "1"
 rustls = { version = "0.23", default-features = false, features = [
     "ring",
     "std",
