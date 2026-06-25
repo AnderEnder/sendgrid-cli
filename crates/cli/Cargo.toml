@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Agent-friendly command-line interface for the SendGrid v3 API: search, describe, dry-run, and safely invoke all 391 operations. Installs the `sendgrid` binary; also serves the bundled MCP server via `sendgrid mcp`."
+readme = "README.md"
+keywords = ["sendgrid", "email", "cli", "api", "agent"]
+categories = ["command-line-utilities", "email"]
 
 [[bin]]
 name = "sendgrid"
@@ -11,7 +16,9 @@ path = "src/main.rs"
 
 [dependencies]
 sendgrid-core.workspace = true
-sendgrid-mcp = { path = "../mcp" }
+# `version` REQUIRED for `cargo publish` (path is stripped on package; resolves from
+# crates.io). Keep in lockstep with the workspace version.
+sendgrid-mcp = { path = "../mcp", version = "0.1.0" }
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true

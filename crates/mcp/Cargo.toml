@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Model Context Protocol (MCP) server exposing all 391 SendGrid v3 API operations to AI agents through a search → describe → invoke meta-tool surface."
+readme = "README.md"
+keywords = ["sendgrid", "email", "mcp", "api", "agent"]
+categories = ["api-bindings", "email"]
 
 [dependencies]
 sendgrid-core.workspace = true

@@ -6,8 +6,12 @@ members = ["crates/core", "crates/cli", "crates/mcp", "xtask"]
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.96"
-license = "MIT"
-repository = "https://github.com/andrii/sendgrid-agent-cli"
+# Dual-licensed under the Rust-ecosystem-standard pair. Every transitive dependency
+# is permissive (MIT/Apache/BSD/ISC/Unicode/…) — none imposes a copyleft obligation —
+# so this choice is unconstrained; we match the ecosystem default and add Apache's
+# explicit patent grant for downstream users.
+license = "MIT OR Apache-2.0"
+repository = "https://github.com/AnderEnder/sendgrid-cli"
 
 [workspace.dependencies]
 serde = { version = "1", features = ["derive"] }
@@ -26,8 +30,10 @@ openapiv3 = "2.2.0"
 # stack those features drag in is dead weight. Keeps the build pure-Rust (no aws-lc/cmake).
 jsonschema = { version = "0.46", default-features = false }
 
-# Local path deps
-sendgrid-core = { path = "crates/core" }
+# Local path deps. The `version` is REQUIRED for `cargo publish`: when a crate is
+# packaged the `path` is stripped and the published dependency resolves against this
+# version on crates.io — so it must stay in lockstep with `version` above.
+sendgrid-core = { path = "crates/core", version = "0.1.0" }
 
 # Release profile — optimize the shipped `sendgrid` binary for size + startup.
 #   lto = true            cross-crate link-time optimization (smaller, faster)

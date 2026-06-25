@@ -4,6 +4,11 @@ version.workspace = true
 edition.workspace = true
 rust-version.workspace = true
 license.workspace = true
+repository.workspace = true
+description = "Typed, validated Rust client for the SendGrid v3 API — all 391 operations, generated from the official OpenAPI spec. The runtime engine behind the sendgrid agent CLI and MCP server."
+readme = "README.md"
+keywords = ["sendgrid", "email", "api", "client", "openapi"]
+categories = ["api-bindings", "email"]
 
 [dependencies]
 serde.workspace = true
