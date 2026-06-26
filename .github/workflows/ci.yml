@@ -1,47 +1,76 @@
-name: ci
+name: Build
 
-# Build / test / lint gate on every push + PR.
 on:
   push:
+    branches: [main]
   pull_request:
+
+# Cancel superseded runs on the same ref.
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
 
 env:
   CARGO_TERM_COLOR: always
 
 jobs:
-  build-test:
+  # fmt, clippy, and the codegen drift gate are OS-independent — run them once on
+  # ubuntu rather than across the matrix.
+  lint:
+    name: fmt + clippy + codegen gate (stable)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - name: Checkout
+        uses: actions/checkout@v7
 
-      # Pin a concrete stable. This workspace is edition 2024 (needs >= 1.85) AND
-      # declares `rust-version = "1.96"` in the root Cargo.toml — cargo hard-errors
-      # if the active toolchain is below that, so the pin MUST be >= 1.96.
-      - name: Install Rust 1.96.0
-        uses: dtolnay/rust-toolchain@master
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: "1.96.0"
-          components: clippy, rustfmt
+          components: rustfmt, clippy
 
-      - uses: Swatinem/rust-cache@v2
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
 
       - name: Format check
         run: cargo fmt --all -- --check
 
-      - name: Clippy (deny warnings)
+      - name: Clippy
         run: cargo clippy --workspace --all-targets -- -D warnings
 
-      - name: Build
-        run: cargo build --workspace --all-targets
-
-      - name: Test
-        run: cargo test --workspace
-
-      # Codegen idempotence gate: regenerating the IR from the vendored specs +
-      # curated tables must reproduce the committed artifact byte-for-byte. A
-      # non-empty diff means someone changed specs/tables/codegen without
-      # re-running `cargo run -p xtask -- codegen` and committing the result.
+      # Drift gate: regenerating the IR from the vendored specs + curated tables
+      # must reproduce the committed artifact byte-for-byte. A non-empty diff means
+      # specs/tables/codegen changed without re-running `cargo run -p xtask -- codegen`
+      # and committing the result.
       - name: Codegen idempotence gate
         run: |
           cargo run -p xtask -- codegen
           git diff --exit-code crates/core/generated/
+
+  # Build + test on every supported OS/arch. The suite is self-contained (wiremock +
+  # insta, no external services), so the full workspace runs on each target.
+  test:
+    name: build + test (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest, macos-15-intel, ubuntu-24.04-arm]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo artifacts
+        uses: Swatinem/rust-cache@v2
+        with:
+          shared-key: ${{ matrix.os }}
+
+      - name: Build
+        run: cargo build --workspace --verbose
+
+      - name: Test
+        run: cargo test --workspace --verbose
+        env:
+          RUST_BACKTRACE: 1
