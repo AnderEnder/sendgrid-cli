@@ -1,0 +1,6 @@
+# This repository is LF-only. Without this, a Windows checkout (GitHub runners
+# default to core.autocrlf=true) rewrites committed text files to CRLF. That breaks
+# the byte-exact codegen idempotence gate — the embedded generated/*.json are
+# rendered with LF, but read back from a CRLF working tree — and would smuggle \r
+# into the `include_str!`-embedded IR/docs on any Windows build.
+* text=auto eol=lf
