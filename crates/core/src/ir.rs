@@ -236,6 +236,12 @@ pub struct OperationIr {
     /// in `data/safety.toml` (`reveal_response_fields`). Empty for all but a tiny set.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub reveal_response_fields: Vec<String>,
+    /// When true AND the response is a 2xx whose body is SendGrid's error shape,
+    /// the envelope is routed to `error` with a non-zero exit instead of `data`.
+    /// Curated in `data/safety.toml` (`soft_error`); false for all but a tiny set
+    /// of ops that return 200-with-error (e.g. template-version editor switch).
+    #[serde(default)]
+    pub soft_error: bool,
     /// Request fields whose values are secrets to redact in previews (`password`, `*_secret`).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub secret_request_fields: Vec<String>,
@@ -337,5 +343,22 @@ impl OperationIr {
     /// the API will 400.
     pub fn constraints(&self) -> &[Constraint] {
         &self.constraints
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn operation_ir_has_soft_error_default_false() {
+        // Deserialize a minimal op without the field; it must default to false.
+        let json = serde_json::json!({
+            "id": "x", "operation_id": "X", "namespace": "n", "domain": "d",
+            "subgroup": "s", "cli_path": ["d","s","x"], "hidden": false,
+            "method": "GET", "path": "/v3/x", "tags": [], "side_effect": "read"
+        });
+        let op: OperationIr = serde_json::from_value(json).unwrap();
+        assert!(!op.soft_error);
     }
 }

@@ -614,6 +614,7 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 side_effect,
                 secret_response_fields,
                 reveal_response_fields,
+                soft_error: false,
                 secret_request_fields,
                 bulk_triggers,
                 pagination,
