@@ -25,17 +25,130 @@ async fn main() {
     std::process::exit(code);
 }
 
+/// Root globals that are NOT `global(true)` because their long-name collides with
+/// real leaf params (38 ops declare `limit`, 27 `offset`, etc.). clap only accepts
+/// them *before* the subcommand, so an agent that writes them after the operation
+/// hits `unexpected argument`. Each takes a value.
+const HOISTABLE_GLOBALS: &[&str] = &["query", "limit", "offset", "region", "on-behalf-of"];
+
+/// Root global longs that consume a following value token — used only to step over
+/// leading root flags while locating the subcommand. Boolean root flags (`dry-run`,
+/// `all`, `include-legacy`, `allow-bulk`) and `--help`/`--version` take no value.
+fn root_flag_takes_value(long: &str) -> bool {
+    matches!(
+        long,
+        "region"
+            | "output"
+            | "query"
+            | "limit"
+            | "offset"
+            | "page-token"
+            | "allow"
+            | "on-behalf-of"
+            | "api-key"
+    )
+}
+
+/// Recover trailing collision-prone root globals: move any of [`HOISTABLE_GLOBALS`]
+/// that appear *after* the subcommand to *before* it, but ONLY when the resolved
+/// leaf op does not itself declare a usable flag of that name (`leaf_declares`).
+/// This is pure and unit-tested; `run` calls it before building matches. `argv`
+/// includes the program name at index 0.
+fn hoist_globals(argv: Vec<String>, leaf_declares: impl Fn(&str, &str) -> bool) -> Vec<String> {
+    // 1. Locate the subcommand: skip the program name and any leading root flags
+    //    (and the value each value-taking flag consumes).
+    let mut sub_start = 1;
+    while sub_start < argv.len() {
+        let tok = &argv[sub_start];
+        let Some(long) = tok.strip_prefix("--") else {
+            if tok.starts_with('-') {
+                // A short flag (none of ours are, but be conservative): skip one.
+                sub_start += 1;
+                continue;
+            }
+            break; // first non-flag token = start of the subcommand chain
+        };
+        if long.contains('=') {
+            sub_start += 1;
+        } else if root_flag_takes_value(long) {
+            sub_start += 2;
+        } else {
+            sub_start += 1;
+        }
+    }
+
+    // 2. The subcommand chain is the contiguous run of non-flag tokens; its
+    //    space-join is the resolve-map key (group tokens + hyphen-joined leaf).
+    let mut chain_end = sub_start;
+    while chain_end < argv.len() && !argv[chain_end].starts_with('-') {
+        chain_end += 1;
+    }
+    let chain_key = argv[sub_start..chain_end].join(" ");
+
+    // 3. Walk the tail (leaf args + any trailing globals); pull out hoistable
+    //    globals the leaf does not declare, preserving everything else in place.
+    let mut hoisted: Vec<String> = Vec::new();
+    let mut tail: Vec<String> = Vec::new();
+    let mut i = chain_end;
+    while i < argv.len() {
+        let tok = &argv[i];
+        if let Some(long) = tok.strip_prefix("--") {
+            let (name, inline_value) = match long.split_once('=') {
+                Some((n, _)) => (n, true),
+                None => (long, false),
+            };
+            if HOISTABLE_GLOBALS.contains(&name) && !leaf_declares(&chain_key, name) {
+                hoisted.push(tok.clone());
+                if !inline_value && i + 1 < argv.len() {
+                    hoisted.push(argv[i + 1].clone());
+                    i += 2;
+                } else {
+                    i += 1;
+                }
+                continue;
+            }
+        }
+        tail.push(tok.clone());
+        i += 1;
+    }
+
+    if hoisted.is_empty() {
+        return argv; // nothing moved: preserve argv exactly
+    }
+
+    // 4. Reassemble: [prog + leading globals] ++ [hoisted] ++ [subcommand chain] ++ [tail].
+    let mut out = Vec::with_capacity(argv.len());
+    out.extend_from_slice(&argv[..sub_start]);
+    out.append(&mut hoisted);
+    out.extend_from_slice(&argv[sub_start..chain_end]);
+    out.append(&mut tail);
+    out
+}
+
 async fn run() -> i32 {
     // `--include-legacy` decides the *shape* of the tree (whether hidden ops and
     // the all-hidden `legacy` group exist), so it must be known before the tree
     // is built. A cheap argv pre-scan resolves it; the parsed flag still governs
     // all runtime behavior.
-    let include_legacy = std::env::args().any(|a| a == "--include-legacy");
+    let argv: Vec<String> = std::env::args().collect();
+    let include_legacy = argv.iter().any(|a| a == "--include-legacy");
     let (command, resolve_map) = tree::build(include_legacy);
 
+    // Recover trailing collision-prone globals (Task 3.2): hoist any that the
+    // resolved leaf does not declare, so `... --query X` after the subcommand works.
+    let argv = hoist_globals(argv, |chain, long| {
+        resolve_map
+            .get(chain)
+            .is_some_and(|op| tree::leaf_declares_flag(op, long))
+    });
+
     // clap handles `--help`/`--version`/parse errors itself (exiting as it sees
-    // fit); we only reach here with a valid parse.
-    let matches = command.get_matches();
+    // fit); we only reach here with a valid parse. On a residual unknown arg the
+    // pre-scan could not recover, this falls through to clap's normal error.
+    let matches = match command.try_get_matches_from(argv) {
+        Ok(m) => m,
+        Err(e) => e.exit(),
+    };
 
     let globals = match GlobalOpts::from_matches(&matches) {
         Ok(g) => g,
@@ -436,6 +549,59 @@ mod tests {
                 .try_get_matches_from(["sendgrid", "mail", "send", "send-mail", "--await"])
                 .is_err(),
             "--await should not exist on a non-poll op"
+        );
+    }
+
+    #[test]
+    fn hoist_globals_moves_trailing_query_but_not_leaf_limit() {
+        let (_cmd, resolve) = tree::build(false);
+        let declares = |chain: &str, long: &str| {
+            resolve
+                .get(chain)
+                .is_some_and(|op| tree::leaf_declares_flag(op, long))
+        };
+
+        // `--query` after the subcommand is hoisted (list-template has no `query`
+        // param), landing before the subcommand with its value intact.
+        let argv = [
+            "sendgrid",
+            "templates",
+            "list-template",
+            "--query",
+            "result",
+        ]
+        .map(String::from)
+        .to_vec();
+        let hoisted = hoist_globals(argv, declares);
+        let q = hoisted.iter().position(|t| t == "--query").expect("kept");
+        let sub = hoisted.iter().position(|t| t == "templates").expect("kept");
+        assert!(
+            q < sub,
+            "--query should be hoisted before the subcommand: {hoisted:?}"
+        );
+        assert_eq!(hoisted[q + 1], "result", "value follows the hoisted flag");
+
+        // A NESTED op (3-token chain) that declares its OWN `--limit` must keep it as
+        // a leaf value — the chain-key lookup must match the resolve map exactly.
+        let argv = [
+            "sendgrid",
+            "account",
+            "subusers",
+            "list-subuser",
+            "--limit",
+            "5",
+        ]
+        .map(String::from)
+        .to_vec();
+        let hoisted = hoist_globals(argv, declares);
+        let lim = hoisted.iter().position(|t| t == "--limit").expect("kept");
+        let sub = hoisted
+            .iter()
+            .position(|t| t == "list-subuser")
+            .expect("kept");
+        assert!(
+            lim > sub,
+            "leaf --limit must stay after the subcommand: {hoisted:?}"
         );
     }
 

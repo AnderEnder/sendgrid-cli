@@ -134,6 +134,18 @@ fn is_on_behalf_of(name: &str) -> bool {
     name.eq_ignore_ascii_case("on-behalf-of")
 }
 
+/// Whether the leaf command for `op` exposes a usable `--<long>` flag. Mirrors
+/// [`leaf_command`]: every param becomes a `--<name>` flag EXCEPT the suppressed
+/// `on-behalf-of` header (routed only through the governed global). The argv
+/// pre-scan uses this to decide whether a trailing root-global collides with a
+/// real leaf flag — for `on-behalf-of` this is always false, so it is always
+/// hoisted to the governed global rather than rejected as an unknown leaf arg.
+pub(crate) fn leaf_declares_flag(op: &OperationIr, long: &str) -> bool {
+    op.params
+        .iter()
+        .any(|p| !is_on_behalf_of(&p.name) && p.name == long)
+}
+
 /// Attach the async-transfer flag (if any) that matches this op's `async_job`.
 fn with_async_flags(cmd: Command, op: &OperationIr) -> Command {
     match op.async_job {
