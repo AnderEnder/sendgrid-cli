@@ -60,6 +60,11 @@ pub struct GlobalOpts {
     pub allow_bulk: bool,
     pub on_behalf_of: Option<String>,
     pub api_key: Option<String>,
+    /// Describe the target operation and exit without dispatching. The flag is
+    /// registered here for `--help` visibility and parse fidelity, but the actual
+    /// short-circuit happens in `main`'s argv pre-scan (it must fire *before* clap
+    /// enforces required leaf params, so `--explain` works with none supplied).
+    pub explain: bool,
 }
 
 /// Attach every root-level global flag to `cmd`.
@@ -148,6 +153,15 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: all)"),
     )
     .arg(
+        // `global(true)`: accepted before OR after the subcommand. Safe because no API
+        // operation declares an `explain` param, so there is no leaf-flag collision.
+        Arg::new("explain")
+            .long("explain")
+            .global(true)
+            .action(ArgAction::SetTrue)
+            .help("Describe the operation (params, example, response fields) and exit without calling it"),
+    )
+    .arg(
         Arg::new("allow-bulk")
             .long("allow-bulk")
             .action(ArgAction::SetTrue)
@@ -197,6 +211,7 @@ impl GlobalOpts {
             allow_bulk: m.get_flag("allow-bulk"),
             on_behalf_of: m.get_one::<String>("on-behalf-of").cloned(),
             api_key: m.get_one::<String>("api-key").cloned(),
+            explain: m.get_flag("explain"),
         })
     }
 

@@ -49,14 +49,12 @@ fn root_flag_takes_value(long: &str) -> bool {
     )
 }
 
-/// Recover trailing collision-prone root globals: move any of [`HOISTABLE_GLOBALS`]
-/// that appear *after* the subcommand to *before* it, but ONLY when the resolved
-/// leaf op does not itself declare a usable flag of that name (`leaf_declares`).
-/// This is pure and unit-tested; `run` calls it before building matches. `argv`
-/// includes the program name at index 0.
-fn hoist_globals(argv: Vec<String>, leaf_declares: impl Fn(&str, &str) -> bool) -> Vec<String> {
-    // 1. Locate the subcommand: skip the program name and any leading root flags
-    //    (and the value each value-taking flag consumes).
+/// Locate the subcommand chain in `argv`: the `[sub_start, chain_end)` range of the
+/// contiguous non-flag tokens that name the command (group tokens + hyphen-joined
+/// leaf), skipping the program name and any leading root flags (and the value each
+/// value-taking flag consumes). `argv[sub_start..chain_end].join(" ")` is the
+/// resolve-map key. Shared by [`hoist_globals`] and the `--explain` pre-scan.
+fn locate_subcommand(argv: &[String]) -> (usize, usize) {
     let mut sub_start = 1;
     while sub_start < argv.len() {
         let tok = &argv[sub_start];
@@ -77,12 +75,21 @@ fn hoist_globals(argv: Vec<String>, leaf_declares: impl Fn(&str, &str) -> bool) 
         }
     }
 
-    // 2. The subcommand chain is the contiguous run of non-flag tokens; its
-    //    space-join is the resolve-map key (group tokens + hyphen-joined leaf).
     let mut chain_end = sub_start;
     while chain_end < argv.len() && !argv[chain_end].starts_with('-') {
         chain_end += 1;
     }
+    (sub_start, chain_end)
+}
+
+/// Recover trailing collision-prone root globals: move any of [`HOISTABLE_GLOBALS`]
+/// that appear *after* the subcommand to *before* it, but ONLY when the resolved
+/// leaf op does not itself declare a usable flag of that name (`leaf_declares`).
+/// This is pure and unit-tested; `run` calls it before building matches. `argv`
+/// includes the program name at index 0.
+fn hoist_globals(argv: Vec<String>, leaf_declares: impl Fn(&str, &str) -> bool) -> Vec<String> {
+    // 1 & 2. Locate the subcommand chain; its space-join is the resolve-map key.
+    let (sub_start, chain_end) = locate_subcommand(&argv);
     let chain_key = argv[sub_start..chain_end].join(" ");
 
     // 3. Walk the tail (leaf args + any trailing globals); pull out hoistable
@@ -125,6 +132,126 @@ fn hoist_globals(argv: Vec<String>, leaf_declares: impl Fn(&str, &str) -> bool) 
     out
 }
 
+/// Render the human-formatted `--explain` view of an operation: its identity and
+/// summary, the parameter menu, a copy-paste-ready example command line, and the
+/// response field-menu — the same building blocks the MCP `describe_operation` tool
+/// surfaces (via `sendgrid_core::describe`), formatted for a terminal. Returned as a
+/// `String` (trailing newline included) for the caller to print; nothing is dispatched.
+fn render_explain(op: &OperationIr) -> String {
+    use std::fmt::Write as _;
+    let d = sendgrid_core::describe::describe(op);
+    let mut s = String::new();
+
+    let _ = writeln!(s, "{}  ({} {})", op.id, op.method, op.path);
+    if let Some(summary) = &op.summary {
+        let _ = writeln!(s, "{summary}");
+    }
+
+    // Parameters — skip the `on-behalf-of` header: the leaf CLI suppresses that flag
+    // (impersonation is routed through the governed global `--on-behalf-of`), so
+    // showing it as a leaf param here would misrepresent the actual surface.
+    let params: Vec<&serde_json::Value> = d
+        .params
+        .iter()
+        .filter(|p| {
+            p.get("name")
+                .and_then(serde_json::Value::as_str)
+                .is_none_or(|n| !n.eq_ignore_ascii_case("on-behalf-of"))
+        })
+        .collect();
+    if !params.is_empty() {
+        let _ = writeln!(s, "\nParameters:");
+        for p in params {
+            let get = |k| p.get(k).and_then(serde_json::Value::as_str).unwrap_or("");
+            let name = get("name");
+            let loc = get("in");
+            let ty = get("type");
+            let req = p
+                .get("required")
+                .and_then(serde_json::Value::as_bool)
+                .unwrap_or(false);
+            let req = if req { ", required" } else { "" };
+            let _ = writeln!(s, "  --{name}  [{loc}{req}] {ty}");
+        }
+    }
+
+    // A runnable example command line: the full chain + required-param placeholders
+    // (mirroring the group `--help` examples), plus the synthesized body when the op
+    // takes one.
+    let mut cmd = format!("sendgrid {}", tree::chain_key(op));
+    for p in &op.params {
+        if p.required && !p.name.eq_ignore_ascii_case("on-behalf-of") {
+            let _ = write!(cmd, " --{} <{}>", p.name, p.name);
+        }
+    }
+    if op.has_body {
+        if d.example.is_null() {
+            cmd.push_str(" --body '{…}'");
+        } else {
+            let _ = write!(cmd, " --body '{}'", d.example);
+        }
+    }
+    let _ = writeln!(s, "\nExample:\n  {cmd}");
+
+    // Response field-menu (names→types; the chaining case shows one level into a
+    // result array's element) — the fix for query-root guessing.
+    let _ = writeln!(s, "\nResponse fields:");
+    let fields = render_response_fields(&d.response_fields);
+    if fields.is_empty() {
+        let _ = writeln!(s, "  (no documented response schema)");
+    } else {
+        s.push_str(&fields);
+    }
+
+    s
+}
+
+/// Format the response field-menu produced by `sendgrid_core::describe` (see
+/// `response_menu`) into indented `name: type` lines. Returns an empty string when
+/// no schema is embedded (`Value::Null`).
+fn render_response_fields(menu: &serde_json::Value) -> String {
+    use std::fmt::Write as _;
+    let mut s = String::new();
+
+    // Top-level array response: `{is_array, item_fields}`.
+    if menu.get("is_array").and_then(serde_json::Value::as_bool) == Some(true) {
+        let _ = writeln!(s, "  [array of objects]");
+        if let Some(item_fields) = menu
+            .get("item_fields")
+            .and_then(serde_json::Value::as_object)
+        {
+            for (name, ty) in item_fields {
+                let _ = writeln!(s, "    {name}: {}", ty.as_str().unwrap_or(""));
+            }
+        }
+        return s;
+    }
+
+    // Object response: `{fields, items?}` where `items` descends one level into
+    // array-of-object fields (the chaining case, e.g. `versions[]`).
+    if let Some(fields) = menu.get("fields").and_then(serde_json::Value::as_object) {
+        let items = menu.get("items").and_then(serde_json::Value::as_object);
+        for (name, ty) in fields {
+            let _ = writeln!(s, "  {name}: {}", ty.as_str().unwrap_or(""));
+            if let Some(sub) = items
+                .and_then(|it| it.get(name))
+                .and_then(serde_json::Value::as_object)
+            {
+                for (sname, sty) in sub {
+                    let _ = writeln!(s, "    {name}[].{sname}: {}", sty.as_str().unwrap_or(""));
+                }
+            }
+        }
+        return s;
+    }
+
+    // Scalar response: `{type}`.
+    if let Some(ty) = menu.get("type").and_then(serde_json::Value::as_str) {
+        let _ = writeln!(s, "  {ty}");
+    }
+    s
+}
+
 async fn run() -> i32 {
     // `--include-legacy` decides the *shape* of the tree (whether hidden ops and
     // the all-hidden `legacy` group exist), so it must be known before the tree
@@ -141,6 +268,23 @@ async fn run() -> i32 {
             .get(chain)
             .is_some_and(|op| tree::leaf_declares_flag(op, long))
     });
+
+    // `--explain` short-circuit (Task 5.2): describe the target op and exit 0 without
+    // dispatching. This must run BEFORE `try_get_matches_from`, because clap enforces
+    // required leaf params first — so `sendgrid templates get-template --explain`
+    // (no `--template_id`) would otherwise error out before we could explain it.
+    // Resolution uses the full chain key; a singular inferred prefix (Task 4.1) won't
+    // resolve here and falls through to clap (a minor, accepted gap).
+    if argv.iter().any(|a| a == "--explain") {
+        let (sub_start, chain_end) = locate_subcommand(&argv);
+        let key = argv[sub_start..chain_end].join(" ");
+        if let Some(op) = resolve_map.get(key.as_str()).copied() {
+            print!("{}", render_explain(op));
+            return 0;
+        }
+        // No resolvable op (e.g. bare `--explain`, or on a group): fall through so
+        // clap emits its usual help/error.
+    }
 
     // clap handles `--help`/`--version`/parse errors itself (exiting as it sees
     // fit); we only reach here with a valid parse. On a residual unknown arg the
@@ -229,6 +373,15 @@ async fn run_operation(
     if op.hidden && !globals.include_legacy {
         eprintln!("error: `{key}` is a hidden/legacy operation; re-run with --include-legacy");
         return 64;
+    }
+
+    // `--explain` also short-circuits here: the argv pre-scan catches the flag when
+    // required leaf params are omitted, but when they *are* supplied (e.g. a Task-4.1
+    // inferred prefix that the pre-scan's full-name lookup missed) the parse succeeds
+    // and we intercept off the parsed flag instead — describe and exit, never dispatch.
+    if globals.explain {
+        print!("{}", render_explain(op));
+        return 0;
     }
 
     let args = match envelope::build(op, leaf, globals) {
@@ -621,6 +774,7 @@ mod tests {
             allow_bulk: false,
             on_behalf_of: None,
             api_key: Some(DUMMY_KEY.to_string()),
+            explain: false,
         }
     }
 }
