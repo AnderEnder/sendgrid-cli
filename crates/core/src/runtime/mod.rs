@@ -314,7 +314,13 @@ fn map_response(op: &OperationIr, resp: DispatchResponse) -> ExecuteResult {
     let mut body = resp.body;
     if resp.status.is_success() {
         safety::redact_response(op, &mut body);
-        ExecuteResult::success(status, op.side_effect, body)
+        if op.soft_error && body_is_sendgrid_error(&body) {
+            // P0: a curated op returned 2xx with a SendGrid error body (e.g. the
+            // template-version editor-switch refusal). Surface it as a failure.
+            ExecuteResult::soft_error(status, op.side_effect, body)
+        } else {
+            ExecuteResult::success(status, op.side_effect, body)
+        }
     } else if resp.status.is_redirection()
         && let Some(location) = resp
             .headers
@@ -328,6 +334,17 @@ fn map_response(op: &OperationIr, resp: DispatchResponse) -> ExecuteResult {
         safety::redact_response(op, &mut body);
         ExecuteResult::http_error(status, op.side_effect, body)
     }
+}
+
+/// SendGrid's soft-error envelope shape: a top-level `error` string or a
+/// non-empty `errors` array. Only consulted for ops flagged `soft_error`, so a
+/// legit 2xx-with-empty-`errors` body on a non-flagged op is never misclassified.
+fn body_is_sendgrid_error(body: &Value) -> bool {
+    body.get("error").is_some()
+        || body
+            .get("errors")
+            .and_then(Value::as_array)
+            .is_some_and(|a| !a.is_empty())
 }
 
 /// Final redaction pass over the whole envelope.

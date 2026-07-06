@@ -95,6 +95,23 @@ impl ExecuteResult {
         }
     }
 
+    /// A 2xx response whose body is a SendGrid error (see [`crate::ir::OperationIr::soft_error`]).
+    /// The body passes through verbatim under `error`; the exit is forced non-zero
+    /// (class 1) even though the HTTP status is a success — do NOT reuse
+    /// `http_error(200, …)`, which would map 200 → exit 0.
+    pub fn soft_error(status: u16, side_effect: SideEffect, body: Value) -> Self {
+        ExecuteResult {
+            status,
+            side_effect,
+            exit_code: 1,
+            code: None,
+            request_preview: None,
+            next: None,
+            warnings: Vec::new(),
+            payload: Payload::Error(body),
+        }
+    }
+
     /// A pre-flight/runtime failure (validation, safety, region, build) with a
     /// stable `E_*` code. `exit_code` defaults to the usage class (64).
     pub fn preflight_error(
