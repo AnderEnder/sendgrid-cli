@@ -774,6 +774,7 @@ mod tests {
             allow_bulk: false,
             on_behalf_of: None,
             api_key: Some(DUMMY_KEY.to_string()),
+            api_key_stdin: false,
             explain: false,
         }
     }

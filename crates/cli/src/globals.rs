@@ -60,7 +60,12 @@ pub struct GlobalOpts {
     pub allow_explicit: bool,
     pub allow_bulk: bool,
     pub on_behalf_of: Option<String>,
+    /// The resolved explicit key, from either `--api-key` or (read here) the first
+    /// line of stdin under `--api-key-stdin`. `None` falls back to `SENDGRID_API_KEY`.
     pub api_key: Option<String>,
+    /// Whether the key in `api_key` came from stdin (`--api-key-stdin`) rather than
+    /// `--api-key`. Suppresses the argv-leak warning on the recommended stdin path.
+    pub api_key_stdin: bool,
     /// Describe the target operation and exit without dispatching. The flag is
     /// registered here for `--help` visibility and parse fidelity, but the actual
     /// short-circuit happens in `main`'s argv pre-scan (it must fire *before* clap
@@ -182,6 +187,17 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .value_name("KEY")
             .help("API key (discouraged — prefer the SENDGRID_API_KEY env var)"),
     )
+    .arg(
+        // `global(true)`: long-name `api-key-stdin` (hyphen); no API param matches.
+        // Reading the key from stdin keeps it out of argv (process listings / shell
+        // history) and out of the environment. Mutually exclusive with `--api-key`.
+        Arg::new("api-key-stdin")
+            .long("api-key-stdin")
+            .global(true)
+            .action(ArgAction::SetTrue)
+            .conflicts_with("api-key")
+            .help("Read the API key from the first line of stdin (avoids argv/env leaks)"),
+    )
 }
 
 impl GlobalOpts {
@@ -195,6 +211,19 @@ impl GlobalOpts {
             .get_one::<String>("output")
             .and_then(|s| OutputFormat::parse(s))
             .unwrap_or(OutputFormat::Json);
+        // `--api-key-stdin` (mutually exclusive with `--api-key` via clap) reads one
+        // line from stdin and uses it as the explicit key — so it never touches argv
+        // or the environment. The trimmed line flows through the same `api_key` field.
+        let api_key_stdin = m.get_flag("api-key-stdin");
+        let api_key = if api_key_stdin {
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .context("failed to read API key from stdin (--api-key-stdin)")?;
+            Some(line.trim().to_string())
+        } else {
+            m.get_one::<String>("api-key").cloned()
+        };
         Ok(GlobalOpts {
             region,
             output,
@@ -211,7 +240,8 @@ impl GlobalOpts {
             allow_explicit: matches!(m.value_source("allow"), Some(ValueSource::CommandLine)),
             allow_bulk: m.get_flag("allow-bulk"),
             on_behalf_of: m.get_one::<String>("on-behalf-of").cloned(),
-            api_key: m.get_one::<String>("api-key").cloned(),
+            api_key,
+            api_key_stdin,
             explain: m.get_flag("explain"),
         })
     }
@@ -250,10 +280,12 @@ impl GlobalOpts {
     /// Resolve the API key (explicit `--api-key` beats `SENDGRID_API_KEY`).
     /// Emits a discouragement warning when `--api-key` is used.
     fn api_key(&self) -> anyhow::Result<ApiKey> {
-        if self.api_key.is_some() {
+        // Warn only for the argv path; `--api-key-stdin` is the recommended,
+        // non-leaking source and must not draw the discouragement notice.
+        if self.api_key.is_some() && !self.api_key_stdin {
             eprintln!(
                 "warning: --api-key is discouraged (it can leak via shell history / process \
-                 listings); prefer the SENDGRID_API_KEY environment variable"
+                 listings); prefer the SENDGRID_API_KEY environment variable or --api-key-stdin"
             );
         }
         resolve_api_key(self.api_key.clone()).map_err(|e| anyhow::anyhow!(e.to_string()))
