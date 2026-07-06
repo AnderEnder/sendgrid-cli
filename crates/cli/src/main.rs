@@ -259,7 +259,12 @@ async fn run() -> i32 {
     // all runtime behavior.
     let argv: Vec<String> = std::env::args().collect();
     let include_legacy = argv.iter().any(|a| a == "--include-legacy");
-    let (command, resolve_map) = tree::build(include_legacy);
+    // `--all` likewise decides the *shape* of the tree: it relaxes clap's `required`
+    // on a page-size/limit param so the runtime can inject the per-page default. Like
+    // `--include-legacy`, this must be known before the tree is built, so a cheap argv
+    // pre-scan resolves it; the parsed flag still governs all runtime behavior.
+    let paginate_all = argv.iter().any(|a| a == "--all");
+    let (command, resolve_map) = tree::build(include_legacy, paginate_all);
 
     // Recover trailing collision-prone globals (Task 3.2): hoist any that the
     // resolved leaf does not declare, so `... --query X` after the subcommand works.
@@ -435,7 +440,7 @@ mod tests {
 
     #[test]
     fn parsed_send_mail_inline_body_builds_envelope_and_resolves() {
-        let (command, resolve_map) = tree::build(false);
+        let (command, resolve_map) = tree::build(false, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -470,7 +475,7 @@ mod tests {
         let path = dir.join("sendgrid_cli_test_body.json");
         std::fs::write(&path, valid_sendmail_body()).unwrap();
 
-        let (command, resolve_map) = tree::build(false);
+        let (command, resolve_map) = tree::build(false, false);
         let body_arg = format!("@{}", path.display());
         let matches = command
             .try_get_matches_from(["sendgrid", "mail", "send", "send-mail", "--body", &body_arg])
@@ -509,7 +514,7 @@ mod tests {
 
     #[test]
     fn global_flags_parse_before_subcommand() {
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -537,7 +542,7 @@ mod tests {
         // the root matches. Building the FULL tree (include_legacy=true) also makes this
         // a collision detector: clap panics on a duplicate long-name across all ops, so
         // a clean parse proves none of the globalized flags collide with a leaf param.
-        let (command, _resolve) = tree::build(true);
+        let (command, _resolve) = tree::build(true, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -564,7 +569,7 @@ mod tests {
         // `--allow` is `global(true)` (Task 3.1) yet still gates the mcp read-only
         // default via value_source == CommandLine. Guard that --allow before the
         // subcommand is still detected as an explicit choice.
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -586,7 +591,7 @@ mod tests {
         // Regression: 219 ops carry an `on-behalf-of` header param whose leaf flag
         // is suppressed. `envelope::build` must NOT query that arg id (clap panics
         // on an unregistered id) and must emit no `on-behalf-of` header.
-        let (command, resolve_map) = tree::build(false);
+        let (command, resolve_map) = tree::build(false, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -620,7 +625,7 @@ mod tests {
     #[test]
     fn obo_leaf_flag_is_rejected() {
         // The suppressed leaf flag must not exist — passing it is an unknown-arg error.
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let err = command.try_get_matches_from([
             "sendgrid",
             "account",
@@ -637,7 +642,7 @@ mod tests {
     #[test]
     fn global_on_behalf_of_still_parses() {
         // Impersonation is routed only through the governed global flag (root-level).
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let matches = command
             .try_get_matches_from([
                 "sendgrid",
@@ -656,7 +661,7 @@ mod tests {
 
     #[test]
     fn auth_subcommands_parse() {
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         for sub in ["scopes", "whoami", "doctor"] {
             command
                 .clone()
@@ -672,7 +677,7 @@ mod tests {
 
     #[test]
     fn async_ops_expose_the_right_flags() {
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         // Poll op → --await.
         command
             .clone()
@@ -707,7 +712,7 @@ mod tests {
 
     #[test]
     fn hoist_globals_moves_trailing_query_but_not_leaf_limit() {
-        let (_cmd, resolve) = tree::build(false);
+        let (_cmd, resolve) = tree::build(false, false);
         let declares = |chain: &str, long: &str| {
             resolve
                 .get(chain)

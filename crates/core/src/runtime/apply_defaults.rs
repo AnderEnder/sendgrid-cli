@@ -73,7 +73,12 @@ fn apply_curated_defaults(op: &OperationIr, obj: &mut Map<String, Value>) {
 }
 
 /// Query param names that control the per-page size / limit of a listing.
-fn is_page_size_param(p: &ParamIr) -> bool {
+///
+/// Shared with the CLI tree builder: under `--all` the CLI relaxes clap's
+/// `required` on exactly this set so the runtime injection below can fill the
+/// default — the CLI-relaxed set and the runtime-injected set must stay identical,
+/// so both consult this single predicate.
+pub fn is_page_size_param(p: &ParamIr) -> bool {
     p.location == Location::Query
         && p.required
         && matches!(p.name.as_str(), "page_size" | "limit" | "per_page")

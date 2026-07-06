@@ -605,7 +605,7 @@ mod tests {
 
     #[test]
     fn selected_async_is_gated_by_async_job() {
-        let (cmd, resolve_map) = tree::build(false);
+        let (cmd, resolve_map) = tree::build(false, false);
 
         // Poll op with --await → Await.
         let m = cmd

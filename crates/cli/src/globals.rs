@@ -351,7 +351,7 @@ mod tests {
     /// Parse argv through the real command tree and extract the root globals — the
     /// only path that populates clap's `value_source` for `--allow`.
     fn globals_from(argv: &[&str]) -> GlobalOpts {
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let matches = command.try_get_matches_from(argv).expect("argv parses");
         GlobalOpts::from_matches(&matches).expect("globals")
     }
