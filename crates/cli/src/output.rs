@@ -44,7 +44,12 @@ pub fn render(result: &ExecuteResult, globals: &GlobalOpts) -> i32 {
             .clone()
             .unwrap_or_else(|| envelope_value(result));
         let rendered = match &globals.query {
-            Some(q) => select(&preview, q),
+            Some(q) => {
+                if let Some(hint) = query_hint(&preview, q) {
+                    eprintln!("warning: {hint}");
+                }
+                select(&preview, q)
+            }
             None => bound_preview(&preview),
         };
         println!("{}", to_json_string(&rendered, stdout_tty));
@@ -54,6 +59,9 @@ pub fn render(result: &ExecuteResult, globals: &GlobalOpts) -> i32 {
     // Success: render `data` (post --query) in the requested format.
     let mut data = result.data().cloned().unwrap_or(Value::Null);
     if let Some(q) = &globals.query {
+        if let Some(hint) = query_hint(&data, q) {
+            eprintln!("warning: {hint}");
+        }
         data = select(&data, q);
     }
 
@@ -137,10 +145,10 @@ pub fn select(value: &Value, expr: &str) -> Value {
 #[derive(Debug)]
 pub enum Selection {
     Value(Value),
-    // `available` is consumed by the `--query` miss hint wired in Task 2.2; until then
-    // it is read only by tests, so silence dead_code for this one field.
+    /// An object key in the path was absent. Carries the missing key and the sibling
+    /// keys available at that level, so [`query_hint`] can build a corrective message.
     NoMatch {
-        #[allow(dead_code)]
+        key: String,
         available: Vec<String>,
     },
 }
@@ -156,6 +164,20 @@ pub fn select_reporting(value: &Value, expr: &str) -> Selection {
     }
     let tokens: Vec<&str> = expr.split('.').filter(|t| !t.is_empty()).collect();
     select_reporting_tokens(value, &tokens)
+}
+
+/// Build a one-line corrective hint if applying `expr` to `value` misses on an object
+/// key, naming the absent key and the keys actually present at that level. Returns
+/// `None` when the selector matches — including a present-but-null value, which is a
+/// match, not a miss. The caller (`render`) prefixes `warning: ` and writes to stderr.
+pub fn query_hint(value: &Value, expr: &str) -> Option<String> {
+    match select_reporting(value, expr) {
+        Selection::Value(_) => None,
+        Selection::NoMatch { key, available } => Some(format!(
+            "--query: no match for `{key}`; available keys: {}",
+            available.join(", ")
+        )),
+    }
 }
 
 fn select_tokens(value: &Value, tokens: &[&str]) -> Value {
@@ -246,7 +268,10 @@ fn select_reporting_tokens(value: &Value, tokens: &[&str]) -> Selection {
             None => {
                 let mut available: Vec<String> = map.keys().cloned().collect();
                 available.sort();
-                Selection::NoMatch { available }
+                Selection::NoMatch {
+                    key: key.to_string(),
+                    available,
+                }
             }
         },
         _ => Selection::Value(Value::Null),
@@ -426,7 +451,7 @@ mod tests {
         // Agent guessed the wrong root: `data` instead of `result`.
         let outcome = select_reporting(&data, "data.id");
         assert!(matches!(outcome, Selection::NoMatch { .. }));
-        if let Selection::NoMatch { available } = outcome {
+        if let Selection::NoMatch { available, .. } = outcome {
             assert!(available.contains(&"result".to_string()));
         }
     }
@@ -438,6 +463,23 @@ mod tests {
             select_reporting(&data, "active"),
             Selection::Value(_)
         ));
+    }
+
+    #[test]
+    fn query_miss_produces_hint_message() {
+        let data = json!({ "result": [] });
+        let msg = query_hint(&data, "data.id");
+        assert_eq!(
+            msg,
+            Some("--query: no match for `data`; available keys: result".into())
+        );
+    }
+
+    #[test]
+    fn query_hint_is_none_on_match_and_terminal_null() {
+        let data = json!({ "result": [], "active": null });
+        assert_eq!(query_hint(&data, "result"), None);
+        assert_eq!(query_hint(&data, "active"), None);
     }
 
     #[test]

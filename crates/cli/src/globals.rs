@@ -86,7 +86,7 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
         Arg::new("query")
             .long("query")
             .value_name("PATH")
-            .help("jq-lite field selector over `data` (e.g. result[].id)"),
+            .help("jq-lite selector, rooted at the response `data` (e.g. result[].id)"),
     )
     .arg(
         // `global(true)`: agents naturally place --dry-run next to the operation (after
