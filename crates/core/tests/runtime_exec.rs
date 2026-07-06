@@ -415,6 +415,26 @@ async fn paginate_all_real_cursor_op_completes_without_spurious_warning() {
 }
 
 #[tokio::test]
+async fn all_injects_page_size_for_required_param() {
+    // P8: `list-template` declares a REQUIRED `page_size` query param. Under `--all`
+    // an agent shouldn't have to know the per-page knob — omitting it must build +
+    // validate cleanly (a default page size is injected), not fail validation.
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_templates_ListTemplate")
+        .expect("ListTemplate exists");
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.dry_run = true;
+    let result = execute_with(&c, op, json!({}), &NeverDispatcher).await;
+    assert!(
+        result.is_success(),
+        "expected build to pass, got {:?}",
+        result.error()
+    );
+}
+
+#[tokio::test]
 async fn eu_region_global_only_op_fails_closed() {
     let r = Registry::global();
     // ListSegment (marketing) is region_global_only.

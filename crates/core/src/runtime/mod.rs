@@ -151,7 +151,7 @@ async fn run<D: OperationDispatcher>(
     //    (data/defaults.toml), so omitted-value behavior matches the modern API
     //    result set instead of SendGrid's legacy server default. Runs before
     //    coercion so an injected value is coerced/validated like a caller's.
-    apply_defaults::apply_defaults(op, &mut args);
+    apply_defaults::apply_defaults(op, &mut args, cfg.paginate_all, cfg.max_items);
 
     // 1. Coerce string args → declared types (path/query/header).
     coerce::coerce_args(op, &mut args);
