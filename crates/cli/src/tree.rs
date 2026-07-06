@@ -282,7 +282,11 @@ pub fn build(include_legacy: bool) -> (Command, ResolveMap) {
             .about("Agent-facing CLI for the SendGrid v3 API (dynamically generated)")
             .version(env!("CARGO_PKG_VERSION"))
             .subcommand_required(true)
-            .arg_required_else_help(true),
+            .arg_required_else_help(true)
+            // Tolerate unique prefixes of group names (e.g. singular `template` for
+            // the `templates` group). The `no_ambiguous_top_level_prefixes` guard keeps
+            // the top-level names prefix-free so this can never silently mis-route.
+            .infer_subcommands(true),
     );
 
     // Domain groups, in deterministic order. (Every op has ≥3 `cli_path` tokens,
@@ -358,6 +362,34 @@ mod tests {
             with.contains_key(&key),
             "hidden op should be present with --include-legacy"
         );
+    }
+
+    #[test]
+    fn no_ambiguous_top_level_prefixes() {
+        // Regen guard for `.infer_subcommands(true)`: if a future op adds a top-level
+        // group whose name is a strict prefix of another top-level command (or vice
+        // versa), inference of the shorter name becomes a shadowing hazard. Assert no
+        // top-level subcommand name is a strict prefix of another. Checked on both the
+        // default and `--include-legacy` surfaces so a new hidden group can't slip a
+        // collision past the default-surface check.
+        for include_legacy in [false, true] {
+            let (cmd, _resolve) = build(include_legacy);
+            let names: Vec<String> = cmd
+                .get_subcommands()
+                .map(|c| c.get_name().to_string())
+                .collect();
+            for a in &names {
+                for b in &names {
+                    if a != b {
+                        assert!(
+                            !b.starts_with(a.as_str()),
+                            "top-level `{a}` is a strict prefix of `{b}` \
+                             (include_legacy={include_legacy}); subcommand inference would be ambiguous",
+                        );
+                    }
+                }
+            }
+        }
     }
 
     #[test]
