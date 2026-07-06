@@ -125,12 +125,37 @@ fn to_json_string(v: &Value, pretty: bool) -> String {
 /// numeric array indices, and `[]`/`*` array wildcards (`result[].id`,
 /// `result.0.name`, `*.email`).
 pub fn select(value: &Value, expr: &str) -> Value {
+    match select_reporting(value, expr) {
+        Selection::Value(v) => v,
+        Selection::NoMatch { .. } => Value::Null,
+    }
+}
+
+/// Outcome of [`select_reporting`]: either the selected value (which may itself be
+/// a present-but-null field) or a report that an object key in the path was absent,
+/// carrying the sibling keys available at that level for a corrective hint.
+#[derive(Debug)]
+pub enum Selection {
+    Value(Value),
+    // `available` is consumed by the `--query` miss hint wired in Task 2.2; until then
+    // it is read only by tests, so silence dead_code for this one field.
+    NoMatch {
+        #[allow(dead_code)]
+        available: Vec<String>,
+    },
+}
+
+/// Like [`select`], but reports when an OBJECT key in the path was absent (as opposed
+/// to a present-but-null value), returning the sibling keys available at that level.
+/// This lets the caller tell "wrong root/typo" apart from "field is genuinely null" —
+/// the distinction agents need to self-correct a `--query` miss.
+pub fn select_reporting(value: &Value, expr: &str) -> Selection {
     let expr = expr.trim().trim_start_matches('.');
     if expr.is_empty() {
-        return value.clone();
+        return Selection::Value(value.clone());
     }
     let tokens: Vec<&str> = expr.split('.').filter(|t| !t.is_empty()).collect();
-    select_tokens(value, &tokens)
+    select_reporting_tokens(value, &tokens)
 }
 
 fn select_tokens(value: &Value, tokens: &[&str]) -> Value {
@@ -172,6 +197,60 @@ fn select_tokens(value: &Value, tokens: &[&str]) -> Value {
         };
     }
     select_tokens(&next, rest)
+}
+
+/// Reporting counterpart of [`select_tokens`]. Mirrors its value semantics but, on the
+/// first miss of an OBJECT key, returns [`Selection::NoMatch`] with the sorted sibling
+/// keys instead of silently yielding `Null`. A key that is present with a `null` value
+/// is a match, not a miss.
+fn select_reporting_tokens(value: &Value, tokens: &[&str]) -> Selection {
+    let Some((head, rest)) = tokens.split_first() else {
+        return Selection::Value(value.clone());
+    };
+
+    // Bare wildcard: map the remaining path over an array (no object-key lookup).
+    if *head == "[]" || *head == "*" {
+        return match value {
+            Value::Array(arr) => Selection::Value(Value::Array(
+                arr.iter().map(|v| select_tokens(v, rest)).collect(),
+            )),
+            _ => Selection::Value(Value::Null),
+        };
+    }
+
+    // Numeric index into an array (an out-of-bounds index is a value miss, not a
+    // key miss, so it stays `Null` rather than reporting available keys).
+    if let Ok(idx) = head.parse::<usize>()
+        && let Value::Array(arr) = value
+    {
+        return match arr.get(idx) {
+            Some(v) => select_reporting_tokens(v, rest),
+            None => Selection::Value(Value::Null),
+        };
+    }
+
+    // Object key, with an optional trailing `[]` wildcard (`foo[]`).
+    let (key, wild) = match head.strip_suffix("[]") {
+        Some(k) => (k, true),
+        None => (*head, false),
+    };
+    match value {
+        Value::Object(map) => match map.get(key) {
+            Some(next) if wild => match next {
+                Value::Array(arr) => Selection::Value(Value::Array(
+                    arr.iter().map(|v| select_tokens(v, rest)).collect(),
+                )),
+                _ => Selection::Value(Value::Null),
+            },
+            Some(next) => select_reporting_tokens(next, rest),
+            None => {
+                let mut available: Vec<String> = map.keys().cloned().collect();
+                available.sort();
+                Selection::NoMatch { available }
+            }
+        },
+        _ => Selection::Value(Value::Null),
+    }
 }
 
 // ---- tabular formatters -----------------------------------------------------
@@ -339,6 +418,26 @@ mod tests {
         assert_eq!(select(&data, "result[].id"), json!([1, 2]));
         assert_eq!(select(&data, ".result.0.name"), json!("a"));
         assert_eq!(select(&data, "missing"), json!(null));
+    }
+
+    #[test]
+    fn select_reports_missing_intermediate_key() {
+        let data = json!({ "result": [ {"id": 1} ] });
+        // Agent guessed the wrong root: `data` instead of `result`.
+        let outcome = select_reporting(&data, "data.id");
+        assert!(matches!(outcome, Selection::NoMatch { .. }));
+        if let Selection::NoMatch { available } = outcome {
+            assert!(available.contains(&"result".to_string()));
+        }
+    }
+
+    #[test]
+    fn select_terminal_null_is_not_reported_as_missing() {
+        let data = json!({ "active": null });
+        assert!(matches!(
+            select_reporting(&data, "active"),
+            Selection::Value(_)
+        ));
     }
 
     #[test]
