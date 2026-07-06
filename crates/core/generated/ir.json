@@ -17984,7 +17984,7 @@
       "password"
     ],
     "side_effect": "write",
-    "soft_error": false,
+    "soft_error": true,
     "subgroup": "templates",
     "summary": "Create a new transactional template version.",
     "tags": [
@@ -18425,7 +18425,7 @@
       "password"
     ],
     "side_effect": "write",
-    "soft_error": false,
+    "soft_error": true,
     "subgroup": "templates",
     "summary": "Edit a transactional template version.",
     "tags": [

@@ -385,3 +385,13 @@ async fn redirect_303_location_is_surfaced() {
     // Not followed: exactly one request (the POST), no chase of the Location.
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
 }
+
+#[test]
+fn template_version_write_ops_are_soft_error() {
+    for id in [
+        "sg_templates_UpdateTemplateVersion",
+        "sg_templates_CreateTemplateVersion",
+    ] {
+        assert!(op(id).soft_error, "{id} should be flagged soft_error");
+    }
+}
