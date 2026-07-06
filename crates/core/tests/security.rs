@@ -9,6 +9,7 @@
 //! 4. `Policy::read_only()` blocks `Send` and `Destructive` ops with
 //!    `E_POLICY_DENIED` before any request is issued.
 
+use sendgrid_core::runtime::audit_line;
 use sendgrid_core::runtime::dispatch::{DispatchError, DispatchResponse, OperationDispatcher};
 use sendgrid_core::{
     ApiKey, ExecuteResult, Policy, Registry, RuntimeConfig, execute, execute_with,
@@ -227,6 +228,35 @@ async fn wrong_typed_secret_value_never_leaks_in_validation_error() {
     assert!(
         !s.contains("SUPER-SECRET-OBJECT-VALUE"),
         "object secret value leaked into validation error: {s}"
+    );
+}
+
+/// **(6) Impersonated / destructive-send calls emit a scrubbed audit line.**
+/// `audit_line` is pure: it assembles `op=… obo=… side_effect=…` and runs the
+/// whole line through `auth::scrub`, so a credential can never ride along in the
+/// emitted text — even if one is smuggled in as the impersonation value.
+#[test]
+fn impersonated_call_emits_scrubbed_audit_line() {
+    let key = ApiKey::new(CONFIG_KEY);
+    let line = audit_line(op("sg_mail_send_SendMail"), Some("subuser-a"), &key);
+    assert!(
+        line.contains("op=") && line.contains("obo=subuser-a") && line.contains("side_effect="),
+        "structured fields present: {line}"
+    );
+    assert!(
+        !line.contains(CONFIG_KEY),
+        "no key in the normal line: {line}"
+    );
+
+    // The scrub actually runs: a key smuggled into the obo is redacted, not echoed.
+    let leaked = audit_line(op("sg_mail_send_SendMail"), Some(CONFIG_KEY), &key);
+    assert!(
+        !leaked.contains(CONFIG_KEY),
+        "scrub must remove a smuggled key: {leaked}"
+    );
+    assert!(
+        leaked.contains("SG.[REDACTED]"),
+        "scrub replaced the smuggled key: {leaked}"
     );
 }
 

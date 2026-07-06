@@ -30,7 +30,7 @@ pub mod retry;
 pub mod safety;
 pub mod validate;
 
-use crate::ir::{OperationIr, PaginationKind};
+use crate::ir::{OperationIr, PaginationKind, SideEffect};
 use crate::registry::Registry;
 use serde_json::{Map, Value};
 
@@ -223,6 +223,14 @@ async fn run<D: OperationDispatcher>(
         };
     }
 
+    // 8b. Audit trail (P8): a real (non-dry-run) call that either impersonates a
+    //     subuser or has a high-consequence side-effect (Destructive/Send) emits one
+    //     structured, scrubbed line to stderr before dispatch. Dry-run returned above,
+    //     so a preview never writes a false "action taken" record.
+    if obo.is_some() || matches!(se, SideEffect::Destructive | SideEffect::Send) {
+        eprintln!("{}", audit_line(op, obo, &cfg.api_key));
+    }
+
     // 9. Auto-paginate (`--all`) when the op actually paginates.
     let paginates = !matches!(
         op.pagination.kind,
@@ -345,6 +353,22 @@ fn body_is_sendgrid_error(body: &Value) -> bool {
             .get("errors")
             .and_then(Value::as_array)
             .is_some_and(|a| !a.is_empty())
+}
+
+/// Build one structured audit line for a privileged call: `op=<id> obo=<v|-> `
+/// `side_effect=<class>`. Pure and side-effect-free — the caller decides where to
+/// emit it (the runtime writes it to stderr before dispatching an impersonated or
+/// Destructive/Send op). The whole line is run through [`auth::scrub`] with the
+/// configured key so a credential can never ride along in the audit text, even if
+/// one were smuggled in as the impersonation value.
+pub fn audit_line(op: &OperationIr, obo: Option<&str>, key: &ApiKey) -> String {
+    let raw = format!(
+        "audit op={} obo={} side_effect={:?}",
+        op.id,
+        obo.unwrap_or("-"),
+        op.side_effect
+    );
+    auth::scrub(&raw, Some(key))
 }
 
 /// Final redaction pass over the whole envelope.
