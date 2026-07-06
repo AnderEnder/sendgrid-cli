@@ -35,29 +35,32 @@ permitted is refused **before anything is sent**, with a stable machine code:
 
 These are **configuration limits, not transient errors** — do not retry them.
 
-### Default policy: ALLOWS ALL
+### Default policy: READ-ONLY (fail closed)
 
-> **The default policy allows every class (`read`, `write`, `destructive`,
-> `send`).** This is a deliberate project decision (the mechanism for locking down
-> is fully intact; it is simply not the default).
+> **With no `--allow`, both surfaces default to `read` only.** Every mutation —
+> `write`, `destructive`, or `send` — is refused with `E_POLICY_DENIED` until you
+> opt in explicitly. This applies to direct CLI invocation *and* the MCP server;
+> there is no allow-all default on either surface.
 
-Restrict it with `--allow` (a comma-list) on either surface:
+Grant the classes a task needs with `--allow` (a comma-list) on either surface:
 
 ```sh
-# CLI: allow only reads and writes for this invocation
-sendgrid --allow read,write marketing contacts update-contact --body @c.json
+# CLI: allow writes for this invocation (reads are always included)
+sendgrid --allow write marketing contacts update-contact --body @c.json
 
-# MCP: launch the server read-only
-sendgrid --allow read mcp
+# MCP: the server is read-only by default; widen deliberately if needed
+sendgrid mcp                       # read-only
+sendgrid --allow write,send mcp    # opt in to writes + outbound send
 ```
 
 Accepted tokens: `read`, `write`, `destructive`, `send`, `bulk`.
 
-> **Important — `--allow` sets the *exact* allowed set; it is not additive over a
-> base.** If you pass `--allow write`, then `read` operations are **also denied**.
-> Always include `read` in any allow-list you want read operations to work under
-> (e.g. `--allow read,write`). Bulk is enabled either by the `bulk` token in
-> `--allow` or by the standalone `--allow-bulk` flag.
+> **`read` is always implied.** `--allow` grants the listed classes *plus* `read`
+> (which powers the discovery/verify loop): `--allow write` yields `{read, write}`,
+> never a read-denying `{write}`. Pass the extra classes you need, e.g.
+> `--allow write,destructive`. To deny reads too, there is no `--allow` value — that
+> deny-all posture is not exposed on the CLI. Bulk is enabled either by the `bulk`
+> token in `--allow` or by the standalone `--allow-bulk` flag.
 
 `--dry-run` (CLI) / `dry_run: true` (MCP) **bypasses the policy gate** because
 nothing is sent — it builds and returns the exact request preview. Use it to
@@ -67,7 +70,8 @@ inspect a destructive/send call before granting the class.
 
 For an agent you do not want sending mail or deleting data on its own:
 
-1. **Run the MCP server read-only:**
+1. **Run the MCP server read-only:** this is now the default, so no `--allow` is
+   needed — the explicit form below documents intent.
 
    ```jsonc
    {
@@ -84,10 +88,10 @@ For an agent you do not want sending mail or deleting data on its own:
    Write/destructive/send calls return `E_POLICY_DENIED`; the agent is steered
    toward `dry_run: true` to see what a call *would* do.
 
-2. **Grant the minimum, never the default.** If the workflow legitimately needs to
-   create/update, widen to `--allow read,write` — and **keep `destructive` and
-   `send` off** unless the task truly requires them. Add `destructive`/`send`
-   per-workflow, not globally.
+2. **Grant the minimum, never more than the task needs.** If the workflow
+   legitimately needs to create/update, widen to `--allow write` (read is implied)
+   — and **keep `destructive` and `send` off** unless the task truly requires them.
+   Add `destructive`/`send` per-workflow, not globally.
 
 3. **Preview first.** Have the agent run `dry_run: true` (or `--dry-run`) before
    any class-elevated call, and read the returned `request_preview`.

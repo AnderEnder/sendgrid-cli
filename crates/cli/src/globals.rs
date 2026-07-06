@@ -54,8 +54,9 @@ pub struct GlobalOpts {
     pub include_legacy: bool,
     pub allow: Option<String>,
     /// Whether `--allow` was passed explicitly on the command line (vs. absent).
-    /// Drives the `mcp` subcommand's read-only default: an unsupervised server with
-    /// no explicit policy locks down to Read, while direct CLI use stays allow-all.
+    /// With no explicit policy both surfaces fail closed to READ-ONLY (`{Read}`);
+    /// this flag lets `mcp_config` distinguish an operator's deliberate `--allow`
+    /// choice from the absent default.
     pub allow_explicit: bool,
     pub allow_bulk: bool,
     pub on_behalf_of: Option<String>,
@@ -150,7 +151,7 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .long("allow")
             .global(true)
             .value_name("CLASSES")
-            .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: all)"),
+            .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: read-only; read is always implied)"),
     )
     .arg(
         // `global(true)`: accepted before OR after the subcommand. Safe because no API
@@ -217,11 +218,17 @@ impl GlobalOpts {
 
     /// Resolve `(Policy, allow_bulk)` from `--allow` / `--allow-bulk`.
     ///
-    /// No `--allow` ⇒ `Policy::all()` (the project default). A `bulk` token in
-    /// `--allow` also flips `allow_bulk` (there is no `SideEffect::Bulk`).
+    /// No `--allow` ⇒ **READ-ONLY** (`{Read}`): the CLI fails closed, so any
+    /// mutation (write/destructive/send) requires an explicit `--allow`. A `bulk`
+    /// token in `--allow` also flips `allow_bulk` (there is no `SideEffect::Bulk`).
     fn policy(&self) -> anyhow::Result<(Policy, bool)> {
         let Some(raw) = self.allow.as_deref() else {
-            return Ok((Policy::all(), self.allow_bulk));
+            // Fail closed: no explicit policy means read-only. Agents drive this
+            // surface, so every state change must be opted into with --allow.
+            return Ok((
+                Policy::from_classes(vec![SideEffect::Read]),
+                self.allow_bulk,
+            ));
         };
         let mut classes = Vec::new();
         let mut allow_bulk = self.allow_bulk;
@@ -275,11 +282,11 @@ impl GlobalOpts {
 
     /// Build the [`McpServerConfig`] for `sendgrid mcp`.
     ///
-    /// The MCP server is the **unsupervised** surface, so it defaults to READ-ONLY:
-    /// with no explicit `--allow`, the policy locks down to `{Read}` (overriding the
-    /// allow-all default that `runtime_config` hands direct CLI use). An explicit
-    /// `--allow` is honored verbatim (with F1's implied-Read). This is the *only*
-    /// place the default flips — direct op invocation stays allow-all.
+    /// Both surfaces now fail closed to READ-ONLY with no explicit `--allow`, so
+    /// this mirrors `runtime_config`'s default. The explicit `{Read}` lock is kept
+    /// here as a defensive belt-and-braces for the unsupervised MCP surface: with no
+    /// `--allow`, the policy is `{Read}` regardless. An explicit `--allow` is honored
+    /// verbatim (with F1's implied-Read).
     pub fn mcp_config(
         &self,
         expose_tags: Vec<String>,
@@ -350,32 +357,76 @@ mod tests {
     }
 
     #[test]
-    fn direct_cli_op_stays_allow_all_without_allow() {
-        // The read-only default is MCP-only: a plain op with no --allow keeps all
-        // four classes (the supervised CLI's allow-all default is unchanged).
+    fn direct_cli_read_allowed_without_allow() {
+        // Read works with no flag: the read-only default still permits reads (which
+        // power the discovery/verify loop agents rely on).
         let g = globals_from(&[
             "sendgrid",
             "--api-key",
             DUMMY_KEY,
-            "mail",
-            "send",
-            "send-mail",
-            "--body",
-            "{}",
+            "templates",
+            "list-template",
+            "--page_size",
+            "1",
+        ]);
+        assert!(!g.allow_explicit);
+        let cfg = g.runtime_config().expect("runtime config");
+        assert!(
+            cfg.policy.allows(SideEffect::Read),
+            "read must be allowed under the read-only default"
+        );
+    }
+
+    #[test]
+    fn direct_cli_write_blocked_without_allow() {
+        // Fail closed: with no --allow the CLI defaults to read-only, so every
+        // mutation class (write/destructive/send) is denied.
+        let g = globals_from(&[
+            "sendgrid",
+            "--api-key",
+            DUMMY_KEY,
+            "account",
+            "user",
+            "update-password",
         ]);
         assert!(!g.allow_explicit);
         let cfg = g.runtime_config().expect("runtime config");
         let p = cfg.policy;
-        for e in [
-            SideEffect::Read,
-            SideEffect::Write,
-            SideEffect::Destructive,
-            SideEffect::Send,
-        ] {
+        assert!(p.allows(SideEffect::Read), "read stays allowed");
+        for e in [SideEffect::Write, SideEffect::Destructive, SideEffect::Send] {
             assert!(
-                p.allows(e),
-                "{e:?} should be allowed under the allow-all default"
+                !p.allows(e),
+                "{e:?} must be blocked without an explicit --allow"
             );
         }
+    }
+
+    #[test]
+    fn direct_cli_write_allowed_with_allow_write() {
+        // `--allow write` opts in: write is permitted (read implied), while
+        // destructive/send remain blocked.
+        let g = globals_from(&[
+            "sendgrid",
+            "--api-key",
+            DUMMY_KEY,
+            "--allow",
+            "write",
+            "account",
+            "user",
+            "update-password",
+        ]);
+        assert!(g.allow_explicit);
+        let cfg = g.runtime_config().expect("runtime config");
+        let p = cfg.policy;
+        assert!(p.allows(SideEffect::Read), "read is implied");
+        assert!(
+            p.allows(SideEffect::Write),
+            "write is granted by --allow write"
+        );
+        assert!(
+            !p.allows(SideEffect::Destructive),
+            "destructive not granted"
+        );
+        assert!(!p.allows(SideEffect::Send), "send not granted");
     }
 }
