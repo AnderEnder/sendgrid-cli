@@ -31,3 +31,5 @@ tokio = { version = "1", features = ["macros", "rt-multi-thread", "io-std"] }
 # Construct `RawResponse.status` (http::StatusCode) in download-write unit tests.
 # Pinned to core's `http = "1"`; the lockfile already resolves it transitively.
 http = "1"
+# Drive the built `sendgrid` binary end-to-end in flag-position integration tests.
+assert_cmd = "2"

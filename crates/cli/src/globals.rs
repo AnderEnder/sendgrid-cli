@@ -137,8 +137,13 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Expose hidden/legacy operations in the tree and search"),
     )
     .arg(
+        // `global(true)`: accepted before OR after the subcommand. Safe because no API
+        // operation declares an `allow` param, so there is no leaf-flag collision. The
+        // `allow_explicit` detection reads `value_source` from the root matches, which
+        // `global(true)` populates regardless of the flag's position.
         Arg::new("allow")
             .long("allow")
+            .global(true)
             .value_name("CLASSES")
             .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: all)"),
     )

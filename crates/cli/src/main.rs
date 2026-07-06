@@ -295,8 +295,8 @@ mod tests {
 
     #[test]
     fn allow_explicit_still_detected() {
-        // Policy flags are intentionally NOT globalized (they gate the mcp read-only
-        // default via value_source == CommandLine). Guard that --allow before the
+        // `--allow` is `global(true)` (Task 3.1) yet still gates the mcp read-only
+        // default via value_source == CommandLine. Guard that --allow before the
         // subcommand is still detected as an explicit choice.
         let (command, _resolve) = tree::build(false);
         let matches = command
