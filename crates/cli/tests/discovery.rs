@@ -30,3 +30,16 @@ fn singular_noun_is_inferred() {
         String::from_utf8_lossy(&out.stderr)
     );
 }
+
+#[test]
+fn group_help_shows_runnable_example() {
+    // Task 4.2: each domain group's `--help` carries a copy-paste-ready example
+    // synthesized from the registry (the group's first read op + its required
+    // params), so an agent sees a working invocation without further guessing.
+    let out = sendgrid(&["templates", "--help"]);
+    let s = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        s.contains("sendgrid templates get-template --template_id"),
+        "templates --help should show a runnable example; got:\n{s}"
+    );
+}

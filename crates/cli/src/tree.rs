@@ -192,6 +192,46 @@ fn with_async_flags(cmd: Command, op: &OperationIr) -> Command {
     }
 }
 
+/// Synthesize a copy-paste-ready example command line for a domain group, drawn from
+/// the group's operations in the registry. Prefers the first read (GET) op so the
+/// example is safe to run as-is, falling back to the group's first op otherwise; the
+/// chosen op's required params are rendered as `--<name> <name>` placeholders (the
+/// governed impersonation header is never shown, mirroring [`leaf_command`]).
+///
+/// `domain` is the group's top-level `cli_path` token; `include_legacy` gates whether
+/// hidden ops are eligible so the example matches the visible surface.
+fn group_example(domain: &str, include_legacy: bool) -> Option<String> {
+    let registry = Registry::global();
+    let in_group = |op: &&OperationIr| {
+        op.cli_path.first().map(String::as_str) == Some(domain) && (include_legacy || !op.hidden)
+    };
+    let ops = registry.operations();
+    // Prefer a read op (safe to run); otherwise the first op in the group.
+    let chosen = ops
+        .iter()
+        .find(|op| in_group(op) && op.method.eq_ignore_ascii_case("GET"))
+        .or_else(|| ops.iter().find(in_group))?;
+
+    let mut line = format!("sendgrid {}", chain_key(chosen));
+    for p in &chosen.params {
+        if p.required && !is_on_behalf_of(&p.name) {
+            line.push_str(&format!(" --{} <{}>", p.name, p.name));
+        }
+    }
+    if chosen.has_body {
+        line.push_str(" --body '{…}'");
+    }
+    Some(line)
+}
+
+/// The `.after_help` block for a domain group: an `Examples:` header plus the
+/// synthesized runnable example (see [`group_example`]). `None` when the group has no
+/// eligible op (never happens for a non-empty group, but stays total).
+fn group_after_help(domain: &str, include_legacy: bool) -> Option<String> {
+    let example = group_example(domain, include_legacy)?;
+    Some(format!("Examples:\n  {example}"))
+}
+
 /// Recursively convert a trie node into a clap subcommand named `name`.
 /// `name` is a `&'static str` group token borrowed from the global registry.
 fn node_to_command(name: &'static str, node: &Node) -> Command {
@@ -293,7 +333,11 @@ pub fn build(include_legacy: bool) -> (Command, ResolveMap) {
     // so the shortest path `[a,b,c]` is group `a` + leaf `b-c`; there are never
     // leaves directly at the root, hence `root_node.leaves` is always empty.)
     for (gname, child) in &root_node.groups {
-        root = root.subcommand(node_to_command(gname, child));
+        let mut group = node_to_command(gname, child);
+        if let Some(help) = group_after_help(gname, include_legacy) {
+            group = group.after_help(intern(help));
+        }
+        root = root.subcommand(group);
     }
 
     // Reserved built-in subcommands (verified not to collide with any group token:
