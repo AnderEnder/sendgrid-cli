@@ -58,6 +58,52 @@ fn query_after_subcommand_is_hoisted_and_works() {
 }
 
 #[test]
+fn inferred_group_keeps_leaf_limit_as_query_param() {
+    // clap `.infer_subcommands(true)` lets an agent type a unique prefix / singular
+    // of a top-level group (`suppression` for `suppressions`). The argv pre-scan keys
+    // off CANONICAL group names, so the inferred token must be canonicalized before
+    // flag-hoisting — otherwise `global-suppression`'s OWN `--limit` query param is
+    // wrongly hoisted to the pagination-cap global and SILENTLY DROPPED.
+    let out = sendgrid(&[
+        "suppression", // inferred singular of `suppressions`
+        "list",
+        "global-suppression",
+        "--limit",
+        "7",
+        "--dry-run",
+        "--output",
+        "json",
+    ]);
+    assert!(
+        out.status.success(),
+        "stderr: {}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    assert!(
+        stdout.contains("limit=7"),
+        "inferred-group leaf --limit must reach the request query; stdout: {stdout}"
+    );
+
+    // The exact-name form must still work identically.
+    let out = sendgrid(&[
+        "suppressions",
+        "list",
+        "global-suppression",
+        "--limit",
+        "7",
+        "--dry-run",
+        "--output",
+        "json",
+    ]);
+    assert!(out.status.success());
+    assert!(
+        String::from_utf8_lossy(&out.stdout).contains("limit=7"),
+        "exact-name leaf --limit must reach the request query"
+    );
+}
+
+#[test]
 fn leaf_param_named_like_a_global_is_not_hoisted() {
     // `account subusers list-subuser` declares its OWN `--limit` query param. A
     // trailing `--limit` must bind to the leaf (landing in the request query), NOT be

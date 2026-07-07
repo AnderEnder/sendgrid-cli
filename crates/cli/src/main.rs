@@ -82,6 +82,37 @@ fn locate_subcommand(argv: &[String]) -> (usize, usize) {
     (sub_start, chain_end)
 }
 
+/// Canonicalize an inferred top-level group token in place.
+///
+/// clap `.infer_subcommands(true)` lets the user type a unique prefix / singular of a
+/// top-level group name (e.g. `suppression` for `suppressions`). Our pre-scans
+/// ([`hoist_globals`] and the `--explain` lookup) key the resolve-map off CANONICAL
+/// `cli_path` tokens, so an inferred token misses the lookup — and the leaf's own
+/// `--limit`/`--offset` query param would be wrongly hoisted to the pagination-cap
+/// global and silently dropped. Inference applies only to the top-level command, so
+/// only the FIRST subcommand token can diverge; rewrite it to the group clap would
+/// infer. Exact matches are left untouched; ambiguous / no match is left as-is so
+/// clap emits its normal error. clap accepts the canonical form too, so mutating the
+/// argv vector clap ultimately parses is safe.
+fn canonicalize_inferred_group(argv: &mut [String], group_names: &[String]) {
+    let (sub_start, _chain_end) = locate_subcommand(argv);
+    if sub_start >= argv.len() {
+        return;
+    }
+    let tok = &argv[sub_start];
+    // Already canonical (exact match): nothing to do.
+    if group_names.iter().any(|g| g == tok) {
+        return;
+    }
+    // Unique-prefix match against the inferable group names.
+    let mut hits = group_names.iter().filter(|g| g.starts_with(tok.as_str()));
+    if let Some(canonical) = hits.next()
+        && hits.next().is_none()
+    {
+        argv[sub_start] = canonical.clone();
+    }
+}
+
 /// Recover trailing collision-prone root globals: move any of [`HOISTABLE_GLOBALS`]
 /// that appear *after* the subcommand to *before* it, but ONLY when the resolved
 /// leaf op does not itself declare a usable flag of that name (`leaf_declares`).
@@ -265,6 +296,19 @@ async fn run() -> i32 {
     // pre-scan resolves it; the parsed flag still governs all runtime behavior.
     let paginate_all = argv.iter().any(|a| a == "--all");
     let (command, resolve_map) = tree::build(include_legacy, paginate_all);
+
+    // Canonicalize a clap-inferred top-level group token (e.g. singular `suppression`
+    // → `suppressions`) BEFORE the argv pre-scans run, so the resolve-map lookups they
+    // key off CANONICAL `cli_path` tokens see the canonical name. Otherwise an inferred
+    // group misses the lookup and the leaf's own `--limit`/`--offset` is wrongly hoisted
+    // and silently dropped. The inferable names are exactly the built top-level
+    // subcommands (already reflecting `--include-legacy`).
+    let mut argv = argv;
+    let group_names: Vec<String> = command
+        .get_subcommands()
+        .map(|c| c.get_name().to_string())
+        .collect();
+    canonicalize_inferred_group(&mut argv, &group_names);
 
     // Recover trailing collision-prone globals (Task 3.2): hoist any that the
     // resolved leaf does not declare, so `... --query X` after the subcommand works.
