@@ -14,6 +14,7 @@ use crate::globals;
 use clap::{Arg, ArgAction, Command};
 use sendgrid_core::Registry;
 use sendgrid_core::ir::{AsyncJob, Location, OperationIr};
+use sendgrid_core::runtime::apply_defaults::is_page_size_param;
 use std::collections::BTreeMap;
 
 /// Leak a computed string to `'static` so clap can hold it. Called a bounded
@@ -67,7 +68,14 @@ impl Node {
 
 /// Build a leaf command for an operation: a `--<name>` flag per path/query/header
 /// param (string-valued; the runtime coerces), plus `--body` for body ops.
-fn leaf_command(op: &'static OperationIr) -> Command {
+///
+/// When `paginate_all` (the `--all` argv pre-scan) is set, a REQUIRED page-size /
+/// limit param is emitted as NON-required: under `--all` the runtime injects a
+/// default page size (`apply_defaults::inject_page_size`), so clap must not gate the
+/// command on a value the caller need not supply. The relaxed set is defined by the
+/// SAME predicate the runtime injection uses ([`is_page_size_param`]), so the two
+/// stay identical.
+fn leaf_command(op: &'static OperationIr, paginate_all: bool) -> Command {
     let mut cmd = Command::new(intern(leaf_name(op)));
     if let Some(summary) = &op.summary {
         cmd = cmd.about(summary.as_str());
@@ -101,11 +109,18 @@ fn leaf_command(op: &'static OperationIr) -> Command {
         // runtime looks params up by). Names like `Content-Encoding`/`accountID`
         // are kept as-is so the envelope key matches the spec exactly. These are
         // `&'static str` borrowed from the global registry.
+        // Under `--all`, relax `required` for a page-size/limit param so the runtime
+        // injection can supply the default; otherwise honor the op's declaration.
+        let required = if paginate_all && is_page_size_param(p) {
+            false
+        } else {
+            p.required
+        };
         let arg = Arg::new(p.name.as_str())
             .long(p.name.as_str())
             .value_name(p.ty.as_str())
             .action(ArgAction::Set)
-            .required(p.required)
+            .required(required)
             .help(help);
         cmd = cmd.arg(arg);
     }
@@ -132,6 +147,18 @@ fn leaf_command(op: &'static OperationIr) -> Command {
 /// Case-insensitive match for the impersonation header param name.
 fn is_on_behalf_of(name: &str) -> bool {
     name.eq_ignore_ascii_case("on-behalf-of")
+}
+
+/// Whether the leaf command for `op` exposes a usable `--<long>` flag. Mirrors
+/// [`leaf_command`]: every param becomes a `--<name>` flag EXCEPT the suppressed
+/// `on-behalf-of` header (routed only through the governed global). The argv
+/// pre-scan uses this to decide whether a trailing root-global collides with a
+/// real leaf flag — for `on-behalf-of` this is always false, so it is always
+/// hoisted to the governed global rather than rejected as an unknown leaf arg.
+pub(crate) fn leaf_declares_flag(op: &OperationIr, long: &str) -> bool {
+    op.params
+        .iter()
+        .any(|p| !is_on_behalf_of(&p.name) && p.name == long)
 }
 
 /// Attach the async-transfer flag (if any) that matches this op's `async_job`.
@@ -180,17 +207,59 @@ fn with_async_flags(cmd: Command, op: &OperationIr) -> Command {
     }
 }
 
+/// Synthesize a copy-paste-ready example command line for a domain group, drawn from
+/// the group's operations in the registry. Prefers the first read (GET) op so the
+/// example is safe to run as-is, falling back to the group's first op otherwise; the
+/// chosen op's required params are rendered as `--<name> <name>` placeholders (the
+/// governed impersonation header is never shown, mirroring [`leaf_command`]).
+///
+/// `domain` is the group's top-level `cli_path` token; `include_legacy` gates whether
+/// hidden ops are eligible so the example matches the visible surface.
+fn group_example(domain: &str, include_legacy: bool) -> Option<String> {
+    let registry = Registry::global();
+    let in_group = |op: &&OperationIr| {
+        op.cli_path.first().map(String::as_str) == Some(domain) && (include_legacy || !op.hidden)
+    };
+    let ops = registry.operations();
+    // Prefer a read op (safe to run); otherwise the first op in the group.
+    let chosen = ops
+        .iter()
+        .find(|op| in_group(op) && op.method.eq_ignore_ascii_case("GET"))
+        .or_else(|| ops.iter().find(in_group))?;
+
+    let mut line = format!("sendgrid {}", chain_key(chosen));
+    for p in &chosen.params {
+        if p.required && !is_on_behalf_of(&p.name) {
+            line.push_str(&format!(" --{} <{}>", p.name, p.name));
+        }
+    }
+    if chosen.has_body {
+        line.push_str(" --body '{…}'");
+    }
+    Some(line)
+}
+
+/// The `.after_help` block for a domain group: an `Examples:` header plus the
+/// synthesized runnable example (see [`group_example`]). `None` when the group has no
+/// eligible op (never happens for a non-empty group, but stays total).
+fn group_after_help(domain: &str, include_legacy: bool) -> Option<String> {
+    let example = group_example(domain, include_legacy)?;
+    Some(format!("Examples:\n  {example}"))
+}
+
 /// Recursively convert a trie node into a clap subcommand named `name`.
 /// `name` is a `&'static str` group token borrowed from the global registry.
-fn node_to_command(name: &'static str, node: &Node) -> Command {
+/// `paginate_all` is threaded down to [`leaf_command`] so `--all` can relax a
+/// required page-size param anywhere in the tree.
+fn node_to_command(name: &'static str, node: &Node, paginate_all: bool) -> Command {
     let mut cmd = Command::new(name)
         .subcommand_required(true)
         .arg_required_else_help(true);
     for (gname, child) in &node.groups {
-        cmd = cmd.subcommand(node_to_command(gname, child));
+        cmd = cmd.subcommand(node_to_command(gname, child, paginate_all));
     }
     for op in node.leaves.values() {
-        cmd = cmd.subcommand(leaf_command(op));
+        cmd = cmd.subcommand(leaf_command(op, paginate_all));
     }
     cmd
 }
@@ -252,7 +321,12 @@ fn mcp_command() -> Command {
 ///
 /// When `include_legacy` is false, hidden ops are omitted entirely, and any group
 /// that would become empty (e.g. the all-hidden `legacy` group) is never created.
-pub fn build(include_legacy: bool) -> (Command, ResolveMap) {
+///
+/// `paginate_all` reflects the `--all` argv pre-scan: when set, a REQUIRED
+/// page-size/limit param is emitted as non-required so the runtime can inject the
+/// default (see [`leaf_command`]). `--all` thus changes the SHAPE of what clap
+/// requires and so must be known before the tree is built (mirrors `include_legacy`).
+pub fn build(include_legacy: bool, paginate_all: bool) -> (Command, ResolveMap) {
     let registry = Registry::global();
 
     let mut root_node = Node::default();
@@ -270,14 +344,22 @@ pub fn build(include_legacy: bool) -> (Command, ResolveMap) {
             .about("Agent-facing CLI for the SendGrid v3 API (dynamically generated)")
             .version(env!("CARGO_PKG_VERSION"))
             .subcommand_required(true)
-            .arg_required_else_help(true),
+            .arg_required_else_help(true)
+            // Tolerate unique prefixes of group names (e.g. singular `template` for
+            // the `templates` group). The `no_ambiguous_top_level_prefixes` guard keeps
+            // the top-level names prefix-free so this can never silently mis-route.
+            .infer_subcommands(true),
     );
 
     // Domain groups, in deterministic order. (Every op has ≥3 `cli_path` tokens,
     // so the shortest path `[a,b,c]` is group `a` + leaf `b-c`; there are never
     // leaves directly at the root, hence `root_node.leaves` is always empty.)
     for (gname, child) in &root_node.groups {
-        root = root.subcommand(node_to_command(gname, child));
+        let mut group = node_to_command(gname, child, paginate_all);
+        if let Some(help) = group_after_help(gname, include_legacy) {
+            group = group.after_help(intern(help));
+        }
+        root = root.subcommand(group);
     }
 
     // Reserved built-in subcommands (verified not to collide with any group token:
@@ -298,7 +380,7 @@ mod tests {
     fn registers_all_visible_ops_without_panic() {
         let registry = Registry::global();
         let visible = registry.operations().iter().filter(|o| !o.hidden).count();
-        let (cmd, resolve) = build(false);
+        let (cmd, resolve) = build(false, false);
         // Every visible op resolves through the tree.
         assert_eq!(resolve.len(), visible);
         // The command tree builds (clap's debug_assert catches id/name collisions).
@@ -308,7 +390,7 @@ mod tests {
     #[test]
     fn full_tree_registers_all_391_without_collision() {
         let registry = Registry::global();
-        let (cmd, resolve) = build(true);
+        let (cmd, resolve) = build(true, false);
         assert_eq!(resolve.len(), registry.operations().len());
         assert_eq!(resolve.len(), 391);
         // Asserts the *full* tree (incl. all 56 hidden ops, which are not all
@@ -318,7 +400,7 @@ mod tests {
 
     #[test]
     fn send_mail_resolves_at_expected_path() {
-        let (_cmd, resolve) = build(false);
+        let (_cmd, resolve) = build(false, false);
         let op = resolve
             .get("mail send send-mail")
             .expect("SendMail at `mail send send-mail`");
@@ -336,12 +418,12 @@ mod tests {
             .expect("a hidden op exists");
         let key = chain_key(hidden);
 
-        let (_c1, without) = build(false);
+        let (_c1, without) = build(false, false);
         assert!(
             !without.contains_key(&key),
             "hidden op should be absent without --include-legacy"
         );
-        let (_c2, with) = build(true);
+        let (_c2, with) = build(true, false);
         assert!(
             with.contains_key(&key),
             "hidden op should be present with --include-legacy"
@@ -349,8 +431,36 @@ mod tests {
     }
 
     #[test]
+    fn no_ambiguous_top_level_prefixes() {
+        // Regen guard for `.infer_subcommands(true)`: if a future op adds a top-level
+        // group whose name is a strict prefix of another top-level command (or vice
+        // versa), inference of the shorter name becomes a shadowing hazard. Assert no
+        // top-level subcommand name is a strict prefix of another. Checked on both the
+        // default and `--include-legacy` surfaces so a new hidden group can't slip a
+        // collision past the default-surface check.
+        for include_legacy in [false, true] {
+            let (cmd, _resolve) = build(include_legacy, false);
+            let names: Vec<String> = cmd
+                .get_subcommands()
+                .map(|c| c.get_name().to_string())
+                .collect();
+            for a in &names {
+                for b in &names {
+                    if a != b {
+                        assert!(
+                            !b.starts_with(a.as_str()),
+                            "top-level `{a}` is a strict prefix of `{b}` \
+                             (include_legacy={include_legacy}); subcommand inference would be ambiguous",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn parsed_command_resolves_to_operation() {
-        let (cmd, resolve) = build(false);
+        let (cmd, resolve) = build(false, false);
         let m = cmd
             .try_get_matches_from(["sendgrid", "mail", "send", "send-mail", "--body", "{}"])
             .expect("parse SendMail");

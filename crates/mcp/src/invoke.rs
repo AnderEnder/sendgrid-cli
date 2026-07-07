@@ -601,6 +601,11 @@ mod tests {
             "SG.0123456789abcdefghABCD.aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         ));
         cfg.base_url_override = Some(server.uri());
+        // These tests exercise Write ops (CreateApiKey, async-job submit) against a
+        // mock server; they are not testing the policy gate. RuntimeConfig now fails
+        // closed to read-only by default, so widen explicitly (as the CLI/MCP surfaces
+        // do via --allow) to reach the behavior under test.
+        cfg.policy = sendgrid_core::Policy::all();
         cfg
     }
 

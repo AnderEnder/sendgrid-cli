@@ -31,19 +31,20 @@ fn bit(e: SideEffect) -> u8 {
 
 /// The set of [`SideEffect`] classes a deployment permits at the chokepoint.
 ///
-/// **DEFAULT = ALL classes allowed** (an explicit user/team-lead decision that
-/// overrides the security memo's read-only recommendation). The mechanism is
-/// intact: an operator who wants the locked-down posture uses [`Policy::read_only`]
-/// (or [`Policy::from_classes`]). Because destructiveness is encoded semantically
-/// in the IR (`EraseRecipientEmailData` is `Destructive`, not `Write`), a
-/// read-only policy genuinely blocks it.
+/// **DEFAULT = READ-ONLY (fail closed).** [`Policy::default`] permits only `Read`, so
+/// an embedder that constructs a [`RuntimeConfig`] without setting a policy inherits
+/// the locked-down posture rather than allow-all. Every mutation (write/destructive/
+/// send) must be opted into explicitly (e.g. the CLI's `--allow`, or
+/// [`Policy::from_classes`] / [`Policy::all`]). Because destructiveness is encoded
+/// semantically in the IR (`EraseRecipientEmailData` is `Destructive`, not `Write`),
+/// the read-only default genuinely blocks it.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct Policy {
     allowed: u8,
 }
 
 impl Policy {
-    /// All four classes allowed. This is the default.
+    /// All four classes allowed (the fully-open posture; NOT the default).
     pub fn all() -> Self {
         Policy {
             allowed: READ | WRITE | DESTRUCTIVE | SEND,
@@ -87,8 +88,9 @@ impl Policy {
 
 impl Default for Policy {
     fn default() -> Self {
-        // User decision: default to ALL classes allowed (see type docs).
-        Policy::all()
+        // Fail closed: the primitive defaults to READ-ONLY so a caller that forgets
+        // to set a policy cannot silently get allow-all (see type docs).
+        Policy::read_only()
     }
 }
 
@@ -249,7 +251,7 @@ mod tests {
     use serde_json::json;
 
     #[test]
-    fn default_policy_allows_all_but_read_only_blocks_destructive() {
+    fn default_policy_is_read_only_and_blocks_destructive() {
         let r = Registry::global();
         let erase = r
             .operations()
@@ -257,11 +259,13 @@ mod tests {
             .find(|o| o.operation_id == "EraseRecipientEmailData")
             .expect("erase op");
         assert_eq!(erase.side_effect, SideEffect::Destructive);
-        // Default = ALL → allowed.
-        assert!(check_policy(erase, &Policy::default(), false).is_ok());
-        // read_only → blocked (capability intact).
-        let denial = check_policy(erase, &Policy::read_only(), false).unwrap_err();
+        // Default = READ-ONLY (fail closed) → a Destructive op is blocked.
+        let denial = check_policy(erase, &Policy::default(), false).unwrap_err();
         assert_eq!(denial.code, "E_POLICY_DENIED");
+        // read_only is the same posture → also blocked (capability intact).
+        assert!(check_policy(erase, &Policy::read_only(), false).is_err());
+        // Explicit all() still allows it.
+        assert!(check_policy(erase, &Policy::all(), false).is_ok());
         // dry_run bypasses the gate.
         assert!(check_policy(erase, &Policy::read_only(), true).is_ok());
     }

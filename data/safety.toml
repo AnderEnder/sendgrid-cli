@@ -107,3 +107,10 @@ op = "mc_lists.DeleteMarketingList"
 field = "delete_contacts"
 location = "query"
 value = "true"
+
+# Ops that return HTTP 2xx with an error body (SendGrid design quirk). Flagged so
+# execute() surfaces them as failures. Keep this list minimal and evidence-based.
+[[soft_error]]
+op = "templates.UpdateTemplateVersion"
+[[soft_error]]
+op = "templates.CreateTemplateVersion"

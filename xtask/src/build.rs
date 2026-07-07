@@ -614,6 +614,7 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
                 side_effect,
                 secret_response_fields,
                 reveal_response_fields,
+                soft_error: tables.soft_error_set.contains(&op_key),
                 secret_request_fields,
                 bulk_triggers,
                 pagination,
@@ -707,6 +708,11 @@ pub fn build(specs: &[SpecFile], tables: &Tables) -> Result<BuildOutput> {
     for s in &tables.safety.reveal_response_fields {
         if !op_keys.contains(&s.op) {
             bail!("reveal_response_fields targets unknown op {:?}", s.op);
+        }
+    }
+    for s in &tables.safety.soft_error {
+        if !op_keys.contains(&s.op) {
+            bail!("soft_error targets unknown op {:?}", s.op);
         }
     }
     for k in tables.destructive_set.iter().chain(tables.send_set.iter()) {

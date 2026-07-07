@@ -54,12 +54,23 @@ pub struct GlobalOpts {
     pub include_legacy: bool,
     pub allow: Option<String>,
     /// Whether `--allow` was passed explicitly on the command line (vs. absent).
-    /// Drives the `mcp` subcommand's read-only default: an unsupervised server with
-    /// no explicit policy locks down to Read, while direct CLI use stays allow-all.
+    /// With no explicit policy both surfaces fail closed to READ-ONLY (`{Read}`);
+    /// this flag lets `mcp_config` distinguish an operator's deliberate `--allow`
+    /// choice from the absent default.
     pub allow_explicit: bool,
     pub allow_bulk: bool,
     pub on_behalf_of: Option<String>,
+    /// The resolved explicit key, from either `--api-key` or (read here) the first
+    /// line of stdin under `--api-key-stdin`. `None` falls back to `SENDGRID_API_KEY`.
     pub api_key: Option<String>,
+    /// Whether the key in `api_key` came from stdin (`--api-key-stdin`) rather than
+    /// `--api-key`. Suppresses the argv-leak warning on the recommended stdin path.
+    pub api_key_stdin: bool,
+    /// Describe the target operation and exit without dispatching. The flag is
+    /// registered here for `--help` visibility and parse fidelity, but the actual
+    /// short-circuit happens in `main`'s argv pre-scan (it must fire *before* clap
+    /// enforces required leaf params, so `--explain` works with none supplied).
+    pub explain: bool,
 }
 
 /// Attach every root-level global flag to `cmd`.
@@ -86,7 +97,7 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
         Arg::new("query")
             .long("query")
             .value_name("PATH")
-            .help("jq-lite field selector over `data` (e.g. result[].id)"),
+            .help("jq-lite selector, rooted at the response `data` (e.g. result[].id)"),
     )
     .arg(
         // `global(true)`: agents naturally place --dry-run next to the operation (after
@@ -137,10 +148,24 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .help("Expose hidden/legacy operations in the tree and search"),
     )
     .arg(
+        // `global(true)`: accepted before OR after the subcommand. Safe because no API
+        // operation declares an `allow` param, so there is no leaf-flag collision. The
+        // `allow_explicit` detection reads `value_source` from the root matches, which
+        // `global(true)` populates regardless of the flag's position.
         Arg::new("allow")
             .long("allow")
+            .global(true)
             .value_name("CLASSES")
-            .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: all)"),
+            .help("Comma-list of allowed side-effect classes: read,write,destructive,send,bulk (default: read-only; read is always implied)"),
+    )
+    .arg(
+        // `global(true)`: accepted before OR after the subcommand. Safe because no API
+        // operation declares an `explain` param, so there is no leaf-flag collision.
+        Arg::new("explain")
+            .long("explain")
+            .global(true)
+            .action(ArgAction::SetTrue)
+            .help("Describe the operation (params, example, response fields) and exit without calling it"),
     )
     .arg(
         Arg::new("allow-bulk")
@@ -162,6 +187,17 @@ pub fn with_global_flags(cmd: clap::Command) -> clap::Command {
             .value_name("KEY")
             .help("API key (discouraged — prefer the SENDGRID_API_KEY env var)"),
     )
+    .arg(
+        // `global(true)`: long-name `api-key-stdin` (hyphen); no API param matches.
+        // Reading the key from stdin keeps it out of argv (process listings / shell
+        // history) and out of the environment. Mutually exclusive with `--api-key`.
+        Arg::new("api-key-stdin")
+            .long("api-key-stdin")
+            .global(true)
+            .action(ArgAction::SetTrue)
+            .conflicts_with("api-key")
+            .help("Read the API key from the first line of stdin (avoids argv/env leaks)"),
+    )
 }
 
 impl GlobalOpts {
@@ -175,6 +211,19 @@ impl GlobalOpts {
             .get_one::<String>("output")
             .and_then(|s| OutputFormat::parse(s))
             .unwrap_or(OutputFormat::Json);
+        // `--api-key-stdin` (mutually exclusive with `--api-key` via clap) reads one
+        // line from stdin and uses it as the explicit key — so it never touches argv
+        // or the environment. The trimmed line flows through the same `api_key` field.
+        let api_key_stdin = m.get_flag("api-key-stdin");
+        let api_key = if api_key_stdin {
+            let mut line = String::new();
+            std::io::stdin()
+                .read_line(&mut line)
+                .context("failed to read API key from stdin (--api-key-stdin)")?;
+            Some(line.trim().to_string())
+        } else {
+            m.get_one::<String>("api-key").cloned()
+        };
         Ok(GlobalOpts {
             region,
             output,
@@ -191,17 +240,25 @@ impl GlobalOpts {
             allow_explicit: matches!(m.value_source("allow"), Some(ValueSource::CommandLine)),
             allow_bulk: m.get_flag("allow-bulk"),
             on_behalf_of: m.get_one::<String>("on-behalf-of").cloned(),
-            api_key: m.get_one::<String>("api-key").cloned(),
+            api_key,
+            api_key_stdin,
+            explain: m.get_flag("explain"),
         })
     }
 
     /// Resolve `(Policy, allow_bulk)` from `--allow` / `--allow-bulk`.
     ///
-    /// No `--allow` ⇒ `Policy::all()` (the project default). A `bulk` token in
-    /// `--allow` also flips `allow_bulk` (there is no `SideEffect::Bulk`).
+    /// No `--allow` ⇒ **READ-ONLY** (`{Read}`): the CLI fails closed, so any
+    /// mutation (write/destructive/send) requires an explicit `--allow`. A `bulk`
+    /// token in `--allow` also flips `allow_bulk` (there is no `SideEffect::Bulk`).
     fn policy(&self) -> anyhow::Result<(Policy, bool)> {
         let Some(raw) = self.allow.as_deref() else {
-            return Ok((Policy::all(), self.allow_bulk));
+            // Fail closed: no explicit policy means read-only. Agents drive this
+            // surface, so every state change must be opted into with --allow.
+            return Ok((
+                Policy::from_classes(vec![SideEffect::Read]),
+                self.allow_bulk,
+            ));
         };
         let mut classes = Vec::new();
         let mut allow_bulk = self.allow_bulk;
@@ -223,10 +280,12 @@ impl GlobalOpts {
     /// Resolve the API key (explicit `--api-key` beats `SENDGRID_API_KEY`).
     /// Emits a discouragement warning when `--api-key` is used.
     fn api_key(&self) -> anyhow::Result<ApiKey> {
-        if self.api_key.is_some() {
+        // Warn only for the argv path; `--api-key-stdin` is the recommended,
+        // non-leaking source and must not draw the discouragement notice.
+        if self.api_key.is_some() && !self.api_key_stdin {
             eprintln!(
                 "warning: --api-key is discouraged (it can leak via shell history / process \
-                 listings); prefer the SENDGRID_API_KEY environment variable"
+                 listings); prefer the SENDGRID_API_KEY environment variable or --api-key-stdin"
             );
         }
         resolve_api_key(self.api_key.clone()).map_err(|e| anyhow::anyhow!(e.to_string()))
@@ -255,11 +314,11 @@ impl GlobalOpts {
 
     /// Build the [`McpServerConfig`] for `sendgrid mcp`.
     ///
-    /// The MCP server is the **unsupervised** surface, so it defaults to READ-ONLY:
-    /// with no explicit `--allow`, the policy locks down to `{Read}` (overriding the
-    /// allow-all default that `runtime_config` hands direct CLI use). An explicit
-    /// `--allow` is honored verbatim (with F1's implied-Read). This is the *only*
-    /// place the default flips — direct op invocation stays allow-all.
+    /// Both surfaces now fail closed to READ-ONLY with no explicit `--allow`, so
+    /// this mirrors `runtime_config`'s default. The explicit `{Read}` lock is kept
+    /// here as a defensive belt-and-braces for the unsupervised MCP surface: with no
+    /// `--allow`, the policy is `{Read}` regardless. An explicit `--allow` is honored
+    /// verbatim (with F1's implied-Read).
     pub fn mcp_config(
         &self,
         expose_tags: Vec<String>,
@@ -292,7 +351,7 @@ mod tests {
     /// Parse argv through the real command tree and extract the root globals — the
     /// only path that populates clap's `value_source` for `--allow`.
     fn globals_from(argv: &[&str]) -> GlobalOpts {
-        let (command, _resolve) = tree::build(false);
+        let (command, _resolve) = tree::build(false, false);
         let matches = command.try_get_matches_from(argv).expect("argv parses");
         GlobalOpts::from_matches(&matches).expect("globals")
     }
@@ -330,32 +389,76 @@ mod tests {
     }
 
     #[test]
-    fn direct_cli_op_stays_allow_all_without_allow() {
-        // The read-only default is MCP-only: a plain op with no --allow keeps all
-        // four classes (the supervised CLI's allow-all default is unchanged).
+    fn direct_cli_read_allowed_without_allow() {
+        // Read works with no flag: the read-only default still permits reads (which
+        // power the discovery/verify loop agents rely on).
         let g = globals_from(&[
             "sendgrid",
             "--api-key",
             DUMMY_KEY,
-            "mail",
-            "send",
-            "send-mail",
-            "--body",
-            "{}",
+            "templates",
+            "list-template",
+            "--page_size",
+            "1",
+        ]);
+        assert!(!g.allow_explicit);
+        let cfg = g.runtime_config().expect("runtime config");
+        assert!(
+            cfg.policy.allows(SideEffect::Read),
+            "read must be allowed under the read-only default"
+        );
+    }
+
+    #[test]
+    fn direct_cli_write_blocked_without_allow() {
+        // Fail closed: with no --allow the CLI defaults to read-only, so every
+        // mutation class (write/destructive/send) is denied.
+        let g = globals_from(&[
+            "sendgrid",
+            "--api-key",
+            DUMMY_KEY,
+            "account",
+            "user",
+            "update-password",
         ]);
         assert!(!g.allow_explicit);
         let cfg = g.runtime_config().expect("runtime config");
         let p = cfg.policy;
-        for e in [
-            SideEffect::Read,
-            SideEffect::Write,
-            SideEffect::Destructive,
-            SideEffect::Send,
-        ] {
+        assert!(p.allows(SideEffect::Read), "read stays allowed");
+        for e in [SideEffect::Write, SideEffect::Destructive, SideEffect::Send] {
             assert!(
-                p.allows(e),
-                "{e:?} should be allowed under the allow-all default"
+                !p.allows(e),
+                "{e:?} must be blocked without an explicit --allow"
             );
         }
+    }
+
+    #[test]
+    fn direct_cli_write_allowed_with_allow_write() {
+        // `--allow write` opts in: write is permitted (read implied), while
+        // destructive/send remain blocked.
+        let g = globals_from(&[
+            "sendgrid",
+            "--api-key",
+            DUMMY_KEY,
+            "--allow",
+            "write",
+            "account",
+            "user",
+            "update-password",
+        ]);
+        assert!(g.allow_explicit);
+        let cfg = g.runtime_config().expect("runtime config");
+        let p = cfg.policy;
+        assert!(p.allows(SideEffect::Read), "read is implied");
+        assert!(
+            p.allows(SideEffect::Write),
+            "write is granted by --allow write"
+        );
+        assert!(
+            !p.allows(SideEffect::Destructive),
+            "destructive not granted"
+        );
+        assert!(!p.allows(SideEffect::Send), "send not granted");
     }
 }

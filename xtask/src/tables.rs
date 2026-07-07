@@ -54,6 +54,10 @@ pub struct Safety {
     /// Intended-output response fields exempted from the generic SG-key pattern scrub.
     #[serde(default)]
     pub reveal_response_fields: Vec<SecretResponse>,
+    /// Ops that return HTTP 2xx with a SendGrid error body; `execute()` surfaces
+    /// them as failures rather than success.
+    #[serde(default)]
+    pub soft_error: Vec<SoftError>,
     #[serde(default)]
     pub bulk_triggers: Vec<BulkTriggerEntry>,
 }
@@ -62,6 +66,11 @@ pub struct Safety {
 pub struct SecretResponse {
     pub op: String,
     pub fields: Vec<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SoftError {
+    pub op: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -189,6 +198,7 @@ pub struct Tables {
     pub known_verbs: BTreeSet<String>,
     pub secret_response_by_op: HashMap<String, Vec<String>>,
     pub reveal_response_by_op: HashMap<String, Vec<String>>,
+    pub soft_error_set: BTreeSet<String>,
     pub pagination_override_by_op: HashMap<String, PaginationOverride>,
     pub comma_join_by_op: HashMap<String, BTreeSet<String>>,
     pub bulk_by_op: HashMap<String, Vec<BulkTriggerEntry>>,
@@ -234,6 +244,8 @@ impl Tables {
             .iter()
             .map(|s| (s.op.clone(), s.fields.clone()))
             .collect();
+
+        let soft_error_set = safety.soft_error.iter().map(|s| s.op.clone()).collect();
 
         let pagination_override_by_op = pagination
             .overrides
@@ -309,6 +321,7 @@ impl Tables {
             known_verbs,
             secret_response_by_op,
             reveal_response_by_op,
+            soft_error_set,
             pagination_override_by_op,
             comma_join_by_op,
             bulk_by_op,

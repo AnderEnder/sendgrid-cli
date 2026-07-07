@@ -9,6 +9,7 @@
 //! 4. `Policy::read_only()` blocks `Send` and `Destructive` ops with
 //!    `E_POLICY_DENIED` before any request is issued.
 
+use sendgrid_core::runtime::audit_line;
 use sendgrid_core::runtime::dispatch::{DispatchError, DispatchResponse, OperationDispatcher};
 use sendgrid_core::{
     ApiKey, ExecuteResult, Policy, Registry, RuntimeConfig, execute, execute_with,
@@ -22,6 +23,31 @@ const CONFIG_KEY: &str =
 
 /// A freshly-created, real-shaped key returned in a 201 body (`SG.<22>.<43>`).
 const CREATED_KEY: &str = "SG.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
+
+/// **Fail-closed default.** A freshly `RuntimeConfig::new`-constructed config (no
+/// explicit policy set) must deny mutations and permit reads — so a future embedder
+/// that forgets to set a policy inherits the locked-down posture, not allow-all.
+#[test]
+fn runtime_config_new_defaults_to_read_only() {
+    use sendgrid_core::ir::SideEffect;
+    let cfg = RuntimeConfig::new(ApiKey::new(CONFIG_KEY));
+    assert!(
+        cfg.policy.allows(SideEffect::Read),
+        "default must allow Read (discovery/verify loop)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Write),
+        "default must DENY Write (fail closed)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Destructive),
+        "default must DENY Destructive (fail closed)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Send),
+        "default must DENY Send (fail closed)"
+    );
+}
 
 fn op(id: &str) -> &'static sendgrid_core::ir::OperationIr {
     Registry::global()
@@ -59,6 +85,9 @@ async fn created_api_key_is_revealed_but_configured_auth_key_is_not() {
 
     let mut c = RuntimeConfig::new(ApiKey::new(CONFIG_KEY));
     c.base_url_override = Some(server.uri());
+    // Policy is not the subject of this redaction test: allow the Write op through so
+    // it reaches the transport (the default is now fail-closed READ-ONLY).
+    c.policy = Policy::all();
 
     let result: ExecuteResult = execute(
         &c,
@@ -227,6 +256,35 @@ async fn wrong_typed_secret_value_never_leaks_in_validation_error() {
     assert!(
         !s.contains("SUPER-SECRET-OBJECT-VALUE"),
         "object secret value leaked into validation error: {s}"
+    );
+}
+
+/// **(6) Impersonated / destructive-send calls emit a scrubbed audit line.**
+/// `audit_line` is pure: it assembles `op=… obo=… side_effect=…` and runs the
+/// whole line through `auth::scrub`, so a credential can never ride along in the
+/// emitted text — even if one is smuggled in as the impersonation value.
+#[test]
+fn impersonated_call_emits_scrubbed_audit_line() {
+    let key = ApiKey::new(CONFIG_KEY);
+    let line = audit_line(op("sg_mail_send_SendMail"), Some("subuser-a"), &key);
+    assert!(
+        line.contains("op=") && line.contains("obo=subuser-a") && line.contains("side_effect="),
+        "structured fields present: {line}"
+    );
+    assert!(
+        !line.contains(CONFIG_KEY),
+        "no key in the normal line: {line}"
+    );
+
+    // The scrub actually runs: a key smuggled into the obo is redacted, not echoed.
+    let leaked = audit_line(op("sg_mail_send_SendMail"), Some(CONFIG_KEY), &key);
+    assert!(
+        !leaked.contains(CONFIG_KEY),
+        "scrub must remove a smuggled key: {leaked}"
+    );
+    assert!(
+        leaked.contains("SG.[REDACTED]"),
+        "scrub replaced the smuggled key: {leaked}"
     );
 }
 

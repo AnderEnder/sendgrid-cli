@@ -203,13 +203,11 @@ async fn create_api_key_reveals_created_key_but_hides_auth_key() {
         }),
     )]);
 
-    let result = execute_with(
-        &cfg(),
-        op,
-        json!({ "body": { "name": "my key" } }),
-        &dispatcher,
-    )
-    .await;
+    // Policy is not the subject of this reveal/redaction test: allow the Write op
+    // past the fail-closed READ-ONLY default so it reaches the dispatcher.
+    let mut c = cfg();
+    c.policy = Policy::all();
+    let result = execute_with(&c, op, json!({ "body": { "name": "my key" } }), &dispatcher).await;
 
     assert!(result.is_success(), "201 is success");
     assert_eq!(result.status, 201);
@@ -411,6 +409,26 @@ async fn paginate_all_real_cursor_op_completes_without_spurious_warning() {
             .any(|w| w.contains("no continuation cursor")),
         "must NOT warn on a real cursor op's clean last page: {:?}",
         result.warnings
+    );
+}
+
+#[tokio::test]
+async fn all_injects_page_size_for_required_param() {
+    // P8: `list-template` declares a REQUIRED `page_size` query param. Under `--all`
+    // an agent shouldn't have to know the per-page knob — omitting it must build +
+    // validate cleanly (a default page size is injected), not fail validation.
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_templates_ListTemplate")
+        .expect("ListTemplate exists");
+    let mut c = cfg();
+    c.paginate_all = true;
+    c.dry_run = true;
+    let result = execute_with(&c, op, json!({}), &NeverDispatcher).await;
+    assert!(
+        result.is_success(),
+        "expected build to pass, got {:?}",
+        result.error()
     );
 }
 

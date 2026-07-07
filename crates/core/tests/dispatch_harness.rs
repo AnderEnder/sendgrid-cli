@@ -116,6 +116,69 @@ async fn build_all_391_ops_dry_run_no_failures_no_unsubstituted_path() {
 }
 
 #[tokio::test]
+async fn soft_error_2xx_body_becomes_error_with_nonzero_exit() {
+    // P0: UpdateTemplateVersion is flagged `soft_error`. SendGrid returns its
+    // "cannot switch editors" refusal with a 200 status + `{"error": ...}` body.
+    // The envelope MUST route that to `error` with a forced non-zero exit.
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_templates_UpdateTemplateVersion")
+        .expect("UpdateTemplateVersion op exists");
+    assert!(op.soft_error, "precondition: op is flagged soft_error");
+
+    let dispatcher = CannedDispatcher {
+        status: 200,
+        headers: http::HeaderMap::new(),
+        body: json!({
+            "error": "You cannot switch editors once a dynamic template version has been created."
+        }),
+    };
+    let args = json!({
+        "path": { "template_id": "t_1", "version_id": "v_1" },
+        "body": { "name": "x", "subject": "y" }
+    });
+    // Policy is not the subject here: allow the Write op past the fail-closed default.
+    let mut c = cfg();
+    c.policy = sendgrid_core::Policy::all();
+    let result = execute_with(&c, op, args, &dispatcher).await;
+
+    assert!(
+        !result.is_success(),
+        "soft-error 2xx must not be a success, got {:?}",
+        result.data()
+    );
+    assert_ne!(result.exit_code, 0, "must be a non-zero exit");
+    assert!(result.error().is_some(), "error body must be present");
+    assert_eq!(result.status, 200, "the original 2xx status is preserved");
+}
+
+#[tokio::test]
+async fn non_flagged_2xx_with_errors_key_stays_success() {
+    // An op that is NOT flagged `soft_error` returning a `{"errors":[...]}` body
+    // must remain a success (no false positive on legit 2xx-with-errors shapes).
+    let r = Registry::global();
+    let op = r
+        .by_id("sg_templates_GetTemplateVersion")
+        .expect("GetTemplateVersion op exists");
+    assert!(!op.soft_error, "precondition: op is NOT flagged soft_error");
+
+    let dispatcher = CannedDispatcher {
+        status: 200,
+        headers: http::HeaderMap::new(),
+        body: json!({ "errors": [] }),
+    };
+    let args = json!({ "path": { "template_id": "t_1", "version_id": "v_1" } });
+    let result = execute_with(&cfg(), op, args, &dispatcher).await;
+
+    assert!(
+        result.is_success(),
+        "non-flagged 2xx must stay success, got {:?}",
+        result.error()
+    );
+    assert_eq!(result.exit_code, 0);
+}
+
+#[tokio::test]
 async fn authenticate_account_303_location_is_surfaced() {
     let r = Registry::global();
     let op = r
@@ -137,7 +200,10 @@ async fn authenticate_account_303_location_is_surfaced() {
     };
 
     let args = json!({ "path": { "accountID": "acct_123" } });
-    let result = execute_with(&cfg(), op, args, &dispatcher).await;
+    // Policy is not the subject here: allow the op past the fail-closed default.
+    let mut c = cfg();
+    c.policy = sendgrid_core::Policy::all();
+    let result = execute_with(&c, op, args, &dispatcher).await;
 
     // M6 FIXED: the 303 `Location` IS surfaced. For this op the redirect target is
     // the entire useful payload, so a documented 3xx-with-Location is a SUCCESS:

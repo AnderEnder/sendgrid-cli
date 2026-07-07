@@ -5,6 +5,7 @@
 //! module adds the data-driven dispatcher (**Backend D**) and the single
 //! [`runtime::execute`] chokepoint the CLI and MCP server consume.
 
+pub mod describe;
 pub mod ir;
 pub mod registry;
 pub mod runtime;

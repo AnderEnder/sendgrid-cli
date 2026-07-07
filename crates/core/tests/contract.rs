@@ -236,7 +236,9 @@ async fn sendmail_not_double_sent_on_5xx() {
 
     // Default retry would retry an *idempotent* op up to 4×; the per-op guard must
     // override that for a send.
-    let c = cfg_at(&server.uri());
+    let mut c = cfg_at(&server.uri());
+    // Policy is not the subject here: allow the Send op through to the transport.
+    c.policy = sendgrid_core::Policy::all();
     let body = json!({
         "from": { "email": "s@example.com" },
         "personalizations": [ { "to": [ { "email": "c@example.net" } ] } ],
@@ -367,7 +369,9 @@ async fn redirect_303_location_is_surfaced() {
         .mount(&server)
         .await;
 
-    let c = cfg_at(&server.uri());
+    let mut c = cfg_at(&server.uri());
+    // Policy is not the subject here: allow the op through to the transport.
+    c.policy = sendgrid_core::Policy::all();
     let result = execute(
         &c,
         op("sg_account_provisioning_AuthenticateAccount"),
@@ -384,4 +388,14 @@ async fn redirect_303_location_is_surfaced() {
     assert_eq!(result.data().unwrap()["location"], json!(landing));
     // Not followed: exactly one request (the POST), no chase of the Location.
     assert_eq!(server.received_requests().await.unwrap().len(), 1);
+}
+
+#[test]
+fn template_version_write_ops_are_soft_error() {
+    for id in [
+        "sg_templates_UpdateTemplateVersion",
+        "sg_templates_CreateTemplateVersion",
+    ] {
+        assert!(op(id).soft_error, "{id} should be flagged soft_error");
+    }
 }
