@@ -24,6 +24,31 @@ const CONFIG_KEY: &str =
 /// A freshly-created, real-shaped key returned in a 201 body (`SG.<22>.<43>`).
 const CREATED_KEY: &str = "SG.AAAAAAAAAAAAAAAAAAAAAA.BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB";
 
+/// **Fail-closed default.** A freshly `RuntimeConfig::new`-constructed config (no
+/// explicit policy set) must deny mutations and permit reads — so a future embedder
+/// that forgets to set a policy inherits the locked-down posture, not allow-all.
+#[test]
+fn runtime_config_new_defaults_to_read_only() {
+    use sendgrid_core::ir::SideEffect;
+    let cfg = RuntimeConfig::new(ApiKey::new(CONFIG_KEY));
+    assert!(
+        cfg.policy.allows(SideEffect::Read),
+        "default must allow Read (discovery/verify loop)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Write),
+        "default must DENY Write (fail closed)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Destructive),
+        "default must DENY Destructive (fail closed)"
+    );
+    assert!(
+        !cfg.policy.allows(SideEffect::Send),
+        "default must DENY Send (fail closed)"
+    );
+}
+
 fn op(id: &str) -> &'static sendgrid_core::ir::OperationIr {
     Registry::global()
         .by_id(id)
@@ -60,6 +85,9 @@ async fn created_api_key_is_revealed_but_configured_auth_key_is_not() {
 
     let mut c = RuntimeConfig::new(ApiKey::new(CONFIG_KEY));
     c.base_url_override = Some(server.uri());
+    // Policy is not the subject of this redaction test: allow the Write op through so
+    // it reaches the transport (the default is now fail-closed READ-ONLY).
+    c.policy = Policy::all();
 
     let result: ExecuteResult = execute(
         &c,

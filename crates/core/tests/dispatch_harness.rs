@@ -137,7 +137,10 @@ async fn soft_error_2xx_body_becomes_error_with_nonzero_exit() {
         "path": { "template_id": "t_1", "version_id": "v_1" },
         "body": { "name": "x", "subject": "y" }
     });
-    let result = execute_with(&cfg(), op, args, &dispatcher).await;
+    // Policy is not the subject here: allow the Write op past the fail-closed default.
+    let mut c = cfg();
+    c.policy = sendgrid_core::Policy::all();
+    let result = execute_with(&c, op, args, &dispatcher).await;
 
     assert!(
         !result.is_success(),
@@ -197,7 +200,10 @@ async fn authenticate_account_303_location_is_surfaced() {
     };
 
     let args = json!({ "path": { "accountID": "acct_123" } });
-    let result = execute_with(&cfg(), op, args, &dispatcher).await;
+    // Policy is not the subject here: allow the op past the fail-closed default.
+    let mut c = cfg();
+    c.policy = sendgrid_core::Policy::all();
+    let result = execute_with(&c, op, args, &dispatcher).await;
 
     // M6 FIXED: the 303 `Location` IS surfaced. For this op the redirect target is
     // the entire useful payload, so a documented 3xx-with-Location is a SUCCESS:

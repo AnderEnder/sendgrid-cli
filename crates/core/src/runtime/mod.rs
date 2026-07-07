@@ -78,8 +78,9 @@ pub struct RuntimeConfig {
 }
 
 impl RuntimeConfig {
-    /// Defaults: region=Global, policy=ALL, no impersonation, single-shot, caps
-    /// 1000 items / 50 pages, default retry.
+    /// Defaults: region=Global, policy=READ-ONLY (fail closed — an embedder must opt
+    /// into mutations explicitly), no impersonation, single-shot, caps 1000 items /
+    /// 50 pages, default retry.
     pub fn new(api_key: ApiKey) -> Self {
         RuntimeConfig {
             api_key,

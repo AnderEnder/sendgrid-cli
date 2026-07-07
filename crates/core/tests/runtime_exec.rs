@@ -203,13 +203,11 @@ async fn create_api_key_reveals_created_key_but_hides_auth_key() {
         }),
     )]);
 
-    let result = execute_with(
-        &cfg(),
-        op,
-        json!({ "body": { "name": "my key" } }),
-        &dispatcher,
-    )
-    .await;
+    // Policy is not the subject of this reveal/redaction test: allow the Write op
+    // past the fail-closed READ-ONLY default so it reaches the dispatcher.
+    let mut c = cfg();
+    c.policy = Policy::all();
+    let result = execute_with(&c, op, json!({ "body": { "name": "my key" } }), &dispatcher).await;
 
     assert!(result.is_success(), "201 is success");
     assert_eq!(result.status, 201);
