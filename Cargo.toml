@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/cli", "crates/mcp", "xtask"]
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
 rust-version = "1.96"
 # Dual-licensed under the Rust-ecosystem-standard pair. Every transitive dependency
@@ -30,10 +30,14 @@ openapiv3 = "2.2.0"
 # stack those features drag in is dead weight. Keeps the build pure-Rust (no aws-lc/cmake).
 jsonschema = { version = "0.46", default-features = false }
 
-# Local path deps. The `version` is REQUIRED for `cargo publish`: when a crate is
-# packaged the `path` is stripped and the published dependency resolves against this
-# version on crates.io — so it must stay in lockstep with `version` above.
-sendgrid-core = { path = "crates/core", version = "0.1.0" }
+# Internal path deps, declared ONCE here so member crates inherit them with
+# `<dep>.workspace = true`. The `version` is REQUIRED for `cargo publish`: when a
+# crate is packaged the `path` is stripped and the published dependency resolves
+# against this version on crates.io. Cargo cannot derive it from `version` above,
+# so these must stay in lockstep with it — but the whole surface is now this one
+# block plus `[workspace.package] version`, all in this file.
+sendgrid-core = { path = "crates/core", version = "0.2.0" }
+sendgrid-mcp = { path = "crates/mcp", version = "0.2.0" }
 
 # Release profile — optimize the shipped `sendgrid` binary for size + startup.
 #   lto = true            cross-crate link-time optimization (smaller, faster)
