@@ -1,5 +1,9 @@
 # sendgrid — an agent-facing CLI & MCP server for the SendGrid v3 API
 
+[![build status](https://github.com/AnderEnder/sendgrid-cli/workflows/Build/badge.svg)](https://github.com/AnderEnder/sendgrid-cli/actions)
+[![release status](https://github.com/AnderEnder/sendgrid-cli/workflows/Release/badge.svg)](https://github.com/AnderEnder/sendgrid-cli/actions)
+[![crates.io](https://img.shields.io/crates/v/sendgrid-cli.svg)](https://crates.io/crates/sendgrid-cli)
+
 A single Rust binary, `sendgrid`, that gives AI agents (and humans) validated,
 safety-gated access to **all 391 SendGrid v3 API operations** — every endpoint
 across 46 API groups, not a hand-picked subset.
