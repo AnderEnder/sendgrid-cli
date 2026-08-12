@@ -30,7 +30,7 @@ Or embed the handler in your own binary as a library dependency:
 
 ```toml
 [dependencies]
-sendgrid-mcp = "0.1"
+sendgrid-mcp = "0.2"
 ```
 
 See [docs.rs](https://docs.rs/sendgrid-mcp) for the handler API.

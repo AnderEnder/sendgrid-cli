@@ -363,7 +363,7 @@ cargo install sendgrid-cli      # installs the `sendgrid` binary
 Published crates: [`sendgrid-cli`](https://crates.io/crates/sendgrid-cli) (the
 binary), [`sendgrid-mcp`](https://crates.io/crates/sendgrid-mcp) (the MCP server
 library), and [`sendgrid-core`](https://crates.io/crates/sendgrid-core) (the
-typed runtime client: `sendgrid-core = "0.1"`).
+typed runtime client: `sendgrid-core = "0.2"`).
 
 ## License
 

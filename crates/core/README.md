@@ -18,7 +18,7 @@ It provides:
 
 ```toml
 [dependencies]
-sendgrid-core = "0.1"
+sendgrid-core = "0.2"
 ```
 
 ```rust
