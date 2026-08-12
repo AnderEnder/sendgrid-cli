@@ -120,7 +120,7 @@ sendgrid <domain> <subgroup> <verb>-<noun> [--flags]
 ```
 
 ```sh
-sendgrid mail send send-mail            --body @msg.json
+sendgrid mail send send-mail --body @msg.json
 sendgrid marketing contacts get-contact --id 123
 sendgrid account user list-account
 ```
@@ -354,7 +354,7 @@ the generator bake-off, and the dispatch pipeline.
 
 ---
 
-## Install
+## Published crates
 
 ```sh
 cargo install sendgrid-cli      # installs the `sendgrid` binary
