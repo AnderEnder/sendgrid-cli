@@ -1,6 +1,6 @@
 # sendgrid — an agent-facing CLI & MCP server for the SendGrid v3 API
 
-[![build status](https://github.com/AnderEnder/sendgrid-cli/workflows/Build/badge.svg)](https://github.com/AnderEnder/sendgrid-cli/actions)
+[![build status](https://github.com/AnderEnder/sendgrid-cli/workflows/Build/badge.svg?branch=main)](https://github.com/AnderEnder/sendgrid-cli/actions)
 [![release status](https://github.com/AnderEnder/sendgrid-cli/workflows/Release/badge.svg)](https://github.com/AnderEnder/sendgrid-cli/actions)
 [![crates.io](https://img.shields.io/crates/v/sendgrid-cli.svg)](https://crates.io/crates/sendgrid-cli)
 
