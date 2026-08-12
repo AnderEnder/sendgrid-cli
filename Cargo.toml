@@ -3,7 +3,7 @@ resolver = "2"
 members = ["crates/core", "crates/cli", "crates/mcp", "xtask"]
 
 [workspace.package]
-version = "0.2.1"
+version = "0.2.2"
 edition = "2024"
 rust-version = "1.96"
 # Dual-licensed under the Rust-ecosystem-standard pair. Every transitive dependency
@@ -36,8 +36,8 @@ jsonschema = { version = "0.49", default-features = false }
 # against this version on crates.io. Cargo cannot derive it from `version` above,
 # so these must stay in lockstep with it — but the whole surface is now this one
 # block plus `[workspace.package] version`, all in this file.
-sendgrid-core = { path = "crates/core", version = "0.2.1" }
-sendgrid-mcp = { path = "crates/mcp", version = "0.2.1" }
+sendgrid-core = { path = "crates/core", version = "0.2.2" }
+sendgrid-mcp = { path = "crates/mcp", version = "0.2.2" }
 
 # Release profile — optimize the shipped `sendgrid` binary for size + startup.
 #   lto = true            cross-crate link-time optimization (smaller, faster)
