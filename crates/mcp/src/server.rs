@@ -8,10 +8,10 @@ use crate::{describe, docs, invoke, prompts, schema, search};
 use rmcp::{
     ErrorData as McpError, RoleServer, ServerHandler,
     model::{
-        CallToolRequestParams, CallToolResult, Content, GetPromptRequestParams, GetPromptResult,
-        Implementation, ListPromptsResult, ListResourcesResult, ListToolsResult,
-        PaginatedRequestParams, ReadResourceRequestParams, ReadResourceResult, ServerCapabilities,
-        ServerInfo, Tool, ToolAnnotations,
+        CallToolRequestParams, CallToolResponse, CallToolResult, ContentBlock,
+        GetPromptRequestParams, GetPromptResponse, Implementation, ListPromptsResult,
+        ListResourcesResult, ListToolsResult, PaginatedRequestParams, ReadResourceRequestParams,
+        ReadResourceResponse, ServerCapabilities, ServerInfo, Tool, ToolAnnotations,
     },
     service::RequestContext,
 };
@@ -66,7 +66,7 @@ impl SgServer {
 
     /// A usage error (a plain message, not a JSON envelope): text content, `isError`.
     fn err(msg: String) -> CallToolResult {
-        CallToolResult::error(vec![Content::text(msg)])
+        CallToolResult::error(vec![ContentBlock::text(msg)])
     }
 
     /// Build a tool result from an `invoke` result envelope, flagging `isError`
@@ -196,8 +196,8 @@ impl ServerHandler for SgServer {
         &self,
         request: ReadResourceRequestParams,
         _ctx: RequestContext<RoleServer>,
-    ) -> Result<ReadResourceResult, McpError> {
-        docs::read(&request.uri).ok_or_else(|| {
+    ) -> Result<ReadResourceResponse, McpError> {
+        docs::read(&request.uri).map(Into::into).ok_or_else(|| {
             McpError::invalid_params(format!("unknown resource uri: {}", request.uri), None)
         })
     }
@@ -216,18 +216,22 @@ impl ServerHandler for SgServer {
         &self,
         request: GetPromptRequestParams,
         _ctx: RequestContext<RoleServer>,
-    ) -> Result<GetPromptResult, McpError> {
+    ) -> Result<GetPromptResponse, McpError> {
         let args = request.arguments.unwrap_or_default();
-        prompts::get(&request.name, &args).map_err(|msg| McpError::invalid_params(msg, None))
+        prompts::get(&request.name, &args)
+            .map(Into::into)
+            .map_err(|msg| McpError::invalid_params(msg, None))
     }
 
     async fn call_tool(
         &self,
         request: CallToolRequestParams,
         _ctx: RequestContext<RoleServer>,
-    ) -> Result<CallToolResult, McpError> {
+    ) -> Result<CallToolResponse, McpError> {
         let args: Map<String, Value> = request.arguments.unwrap_or_default();
-        self.dispatch_tool(request.name.as_ref(), args).await
+        self.dispatch_tool(request.name.as_ref(), args)
+            .await
+            .map(Into::into)
     }
 }
 
@@ -256,7 +260,7 @@ impl SgServer {
             "read_doc" => {
                 let uri = args.get("uri").and_then(Value::as_str);
                 match docs::read_doc(uri) {
-                    Ok(body) => Ok(CallToolResult::success(vec![Content::text(body)])),
+                    Ok(body) => Ok(CallToolResult::success(vec![ContentBlock::text(body)])),
                     Err(msg) => Ok(Self::err(msg)),
                 }
             }

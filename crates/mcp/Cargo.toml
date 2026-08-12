@@ -15,9 +15,9 @@ sendgrid-core.workspace = true
 serde.workspace = true
 serde_json.workspace = true
 anyhow.workspace = true
-# rmcp 1.7.0: stdio MCP server. We hand-implement `ServerHandler` (no `#[tool]`
+# rmcp 3.1.2: stdio MCP server. We hand-implement `ServerHandler` (no `#[tool]`
 # derive macros) so tool names + input schemas are built from runtime IR data.
-rmcp = { version = "1.7.0", features = ["server", "transport-io"] }
+rmcp = { version = "3.1.2", features = ["server", "transport-io"] }
 tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 
 [dev-dependencies]
@@ -26,3 +26,9 @@ tokio = { version = "1", features = ["rt-multi-thread", "macros", "io-std"] }
 # RuntimeConfig::base_url_override) to test the reveal/shaping/await behavior of
 # invoke without a live network.
 wiremock = "0.6"
+# Client-side feature only, for `tests/protocol_smoke.rs`: drives a real MCP
+# client against `SgServer` over an in-memory duplex transport, exercising the
+# `ServerHandler` trait methods (not just the `dispatch_tool` router the
+# `server.rs` unit tests call directly). Feature-unifies with the `[dependencies]`
+# rmcp above (same version) rather than pulling a second copy.
+rmcp = { version = "3.1.2", features = ["client"] }

@@ -4,7 +4,7 @@
 //! search→describe→invoke discipline. The agent's own always-available guidance lives in
 //! `instructions` and the `read_doc` skill, not here.
 
-use rmcp::model::{GetPromptResult, Prompt, PromptArgument, PromptMessage, PromptMessageRole};
+use rmcp::model::{GetPromptResult, Prompt, PromptArgument, PromptMessage, Role};
 use serde_json::{Map, Value};
 
 /// The advertised prompt list (for `prompts/list`).
@@ -52,7 +52,7 @@ pub fn get(name: &str, args: &Map<String, Value>) -> Result<GetPromptResult, Str
                  Read sendgrid://skill/using-the-server (or read_doc) first if you're unsure."
             );
             Ok(GetPromptResult::new(vec![PromptMessage::new_text(
-                PromptMessageRole::User,
+                Role::User,
                 text,
             )]))
         }
@@ -66,7 +66,7 @@ pub fn get(name: &str, args: &Map<String, Value>) -> Result<GetPromptResult, Str
                     that side-effect class — do not retry; tell the user."
             );
             Ok(GetPromptResult::new(vec![PromptMessage::new_text(
-                PromptMessageRole::User,
+                Role::User,
                 text,
             )]))
         }
@@ -91,13 +91,11 @@ mod tests {
         let mut a = Map::new();
         a.insert("goal".into(), json!("create a contact list"));
         let r = get("find_operation", &a).unwrap();
-        let PromptMessage {
-            content: rmcp::model::PromptMessageContent::Text { text },
-            ..
-        } = &r.messages[0]
-        else {
-            panic!("expected text content");
-        };
+        let text = &r.messages[0]
+            .content
+            .as_text()
+            .expect("expected text content")
+            .text;
         assert!(text.contains("create a contact list"));
     }
 
