@@ -4,7 +4,7 @@
 //! skill plus reference docs the agent pulls on demand, so the always-loaded
 //! `instructions` string can stay lean.
 
-use rmcp::model::{AnnotateAble, RawResource, ReadResourceResult, Resource, ResourceContents};
+use rmcp::model::{ReadResourceResult, Resource, ResourceContents};
 
 /// All embedded docs render as markdown.
 const MIME: &str = "text/markdown";
@@ -63,11 +63,10 @@ const DOCS: &[Doc] = &[
 pub fn list() -> Vec<Resource> {
     DOCS.iter()
         .map(|d| {
-            RawResource::new(d.uri, d.name)
+            Resource::new(d.uri, d.name)
                 .with_title(d.title)
                 .with_description(d.description)
                 .with_mime_type(MIME)
-                .no_annotation()
         })
         .collect()
 }
